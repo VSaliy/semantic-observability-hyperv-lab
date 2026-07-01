@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semantic-observability-indexer"
+version = "0.1.0"
+description = "Semantic indexing services for the lab"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.115.0",
+  "httpx==0.27.2",
+  "jsonschema==4.23.0",
+  "kafka-python==2.0.2",
+  "opensearch-py==2.7.1",
+  "prometheus-client==0.21.0",
+  "pydantic==2.9.2",
+  "pydantic-settings==2.5.2",
+  "python-dateutil==2.9.0.post0",
+  "uvicorn==0.31.0"
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.11.2",
+  "pytest==8.3.3",
+  "ruff==0.6.9",
+  "testcontainers[opensearch]==4.8.2"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["semantic_indexer", "semantic_embedding_service"]

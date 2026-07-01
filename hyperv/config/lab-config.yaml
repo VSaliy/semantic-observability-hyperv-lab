@@ -1,0 +1,17 @@
+networks:
+  external:
+    name: External-Lab
+    type: External
+  internal:
+    name: Observability-Internal
+    type: Internal
+    subnet: 10.50.0.0/24
+
+vms:
+  obs-admin:
+    cpu: 2
+    memoryStartupBytes: 4GB
+    diskSizeBytes: 60GB
+    networks:
+      - External-Lab
+      - Observability-Internal

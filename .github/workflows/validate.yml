@@ -1,0 +1,63 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  docs-and-yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install jsonschema pyyaml yamllint
+      - run: ./scripts/validation/validate-json-schema.py
+      - run: yamllint .
+      - run: python semantic-search/evaluation/check_openapi.py
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -e semantic-search/indexer[dev]
+      - run: python -m ruff check semantic-search/indexer/src semantic-search/indexer/tests scripts
+      - run: python -m mypy semantic-search/indexer/src
+      - run: pytest semantic-search/indexer/tests
+
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: mvn -q -f semantic-search/query-api/pom.xml test
+
+  shell-and-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: find scripts -name '*.sh' -print0 | xargs -0 -r shellcheck
+      - uses: zricethezav/gitleaks-action@v2
+
+  terraform-and-kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=terraform fmt -check -recursive
+      - run: terraform -chdir=terraform/environments/lab init -backend=false -input=false
+      - run: terraform -chdir=terraform/environments/lab validate
+      - uses: azure/setup-kubectl@v4
+      - uses: instrumenta/kubeval-action@master
+        with:
+          files: kubernetes
+          ignore_missing_schemas: true

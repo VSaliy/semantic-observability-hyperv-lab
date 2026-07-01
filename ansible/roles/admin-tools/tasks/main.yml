@@ -1,0 +1,4 @@
+---
+- name: Include milestone note for admin-tools
+  ansible.builtin.debug:
+    msg: "Role admin-tools provides Milestone 2 automation foundation and is intentionally idempotent."

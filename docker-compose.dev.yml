@@ -1,0 +1,114 @@
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: semantic-lab-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:19092,PLAINTEXT_HOST://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:19092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-ec"]
+    command: >
+      'kafka-topics --bootstrap-server kafka:19092 --create --if-not-exists --topic platform.telemetry-events --partitions 3 --replication-factor 1 &&
+       kafka-topics --bootstrap-server kafka:19092 --create --if-not-exists --topic semantic.dead-letter --partitions 3 --replication-factor 1'
+
+  opensearch:
+    image: opensearchproject/opensearch:2.17.1
+    container_name: semantic-lab-opensearch
+    environment:
+      discovery.type: single-node
+      plugins.security.disabled: "true"
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:9200 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  opensearch-init:
+    image: curlimages/curl:8.8.0
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    volumes:
+      - ./semantic-search/schemas/opensearch:/assets:ro
+    entrypoint: ["/bin/sh", "/assets/init-opensearch.sh"]
+    environment:
+      OPENSEARCH_URL: http://opensearch:9200
+
+  embedding-service:
+    build:
+      context: ./semantic-search/indexer
+      dockerfile: Dockerfile
+    command: ["uvicorn", "semantic_embedding_service.app:app", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      PYTHONPATH: /app/src
+    ports:
+      - "8090:8090"
+
+  semantic-indexer:
+    build:
+      context: ./semantic-search/indexer
+      dockerfile: Dockerfile
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      opensearch-init:
+        condition: service_completed_successfully
+      embedding-service:
+        condition: service_started
+    command: ["python", "-m", "semantic_indexer.main"]
+    environment:
+      PYTHONPATH: /app/src
+      INDEXER_KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      INDEXER_OPENSEARCH_URL: http://opensearch:9200
+      INDEXER_EMBEDDING_URL: http://embedding-service:8090/embed
+      INDEXER_SCHEMA_PATH: /app/schemas/operational-event.schema.json
+      INDEXER_ENABLE_METRICS_SERVER: "false"
+    volumes:
+      - ./semantic-search/schemas:/app/schemas:ro
+
+  query-api:
+    build:
+      context: ./semantic-search/query-api
+      dockerfile: Dockerfile
+    depends_on:
+      opensearch-init:
+        condition: service_completed_successfully
+      embedding-service:
+        condition: service_started
+    environment:
+      OPENSEARCH_URL: http://opensearch:9200
+      EMBEDDING_URL: http://embedding-service:8090/embed
+      QUERY_API_JWT_SECRET: local-dev-secret-local-dev-secret
+      QUERY_API_ISSUER: http://localhost:8080/dev-issuer
+    ports:
+      - "8080:8080"

@@ -1,0 +1,9 @@
+---
+- name: Apply lab baseline
+  hosts: all
+  become: true
+  roles:
+    - baseline
+    - containerd
+    - kubernetes-prerequisites
+    - admin-tools

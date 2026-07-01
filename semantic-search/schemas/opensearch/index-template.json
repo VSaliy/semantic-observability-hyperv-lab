@@ -1,0 +1,53 @@
+{
+  "index_patterns": ["observability-documents-v1*"],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "knn": true
+      }
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "document_id": {"type": "keyword"},
+        "document_type": {"type": "keyword"},
+        "semantic_text": {"type": "text"},
+        "semantic_vector": {
+          "type": "knn_vector",
+          "dimension": 16,
+          "method": {
+            "name": "hnsw",
+            "space_type": "cosinesimil",
+            "engine": "nmslib"
+          }
+        },
+        "tenant_id": {"type": "keyword"},
+        "timestamp": {"type": "date"},
+        "service_name": {"type": "keyword"},
+        "service_namespace": {"type": "keyword"},
+        "environment": {"type": "keyword"},
+        "service_version": {"type": "keyword"},
+        "severity": {"type": "keyword"},
+        "trace_id": {"type": "keyword"},
+        "incident_id": {"type": "keyword"},
+        "change_id": {"type": "keyword"},
+        "event_id": {"type": "keyword"},
+        "topology_entities": {"type": "keyword"},
+        "summary": {"type": "text"},
+        "source_references": {
+          "type": "nested",
+          "properties": {
+            "type": {"type": "keyword"},
+            "system": {"type": "keyword"},
+            "url": {"type": "keyword"}
+          }
+        }
+      }
+    },
+    "aliases": {
+      "observability-documents": {}
+    }
+  }
+}
