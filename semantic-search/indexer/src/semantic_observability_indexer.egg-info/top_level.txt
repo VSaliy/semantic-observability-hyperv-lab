@@ -1,0 +1,2 @@
+semantic_embedding_service
+semantic_indexer

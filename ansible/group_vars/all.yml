@@ -1,0 +1,5 @@
+lab_timezone: UTC
+kubernetes_swap_enabled: false
+containerd_required_modules:
+  - overlay
+  - br_netfilter

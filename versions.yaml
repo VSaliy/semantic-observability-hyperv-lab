@@ -1,0 +1,38 @@
+platform:
+  ubuntu: "24.04"
+  kubernetes: "1.31.1"
+  containerd: "1.7.22"
+  cilium: "1.16.1"
+  metallb: "0.14.8"
+  nginx_ingress: "1.11.3"
+  cert_manager: "1.16.1"
+  helm: "3.16.2"
+
+observability:
+  opentelemetry_collector: "0.108.0"
+  prometheus_stack: "65.1.1"
+  loki: "6.17.0"
+  tempo: "1.10.2"
+  grafana: "11.2.2"
+  minio: "RELEASE.2024-09-13T20-26-02Z"
+
+messaging:
+  kafka: "7.7.1"
+
+search:
+  opensearch: "2.17.1"
+  postgresql: "16.4"
+  keycloak: "26.0.5"
+  embedding_model:
+    name: "sentence-transformers/all-MiniLM-L6-v2"
+    revision: "c9745ed1d9f207416be6d2e6f8de32d1f16199bf"
+    checksum: "sha256:8c4c0ef4f0c6161bc9c0ff4cfb9661cbabdbcd7be3c7eca6e9ff9e1e8152ef2a"
+
+applications:
+  java: "21"
+  spring_boot: "3.3.2"
+  python: "3.12"
+
+optional:
+  istio: "1.23.2"
+  clickhouse: "24.8.4.13"

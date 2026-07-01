@@ -1,0 +1,36 @@
+name: codeql
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    strategy:
+      matrix:
+        language: [java, python]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+      - uses: actions/setup-java@v4
+        if: matrix.language == 'java'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-python@v5
+        if: matrix.language == 'python'
+        with:
+          python-version: '3.12'
+      - if: matrix.language == 'java'
+        run: mvn -q -f semantic-search/query-api/pom.xml -DskipTests package
+      - if: matrix.language == 'python'
+        run: pip install -e semantic-search/indexer
+      - uses: github/codeql-action/analyze@v3

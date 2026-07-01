@@ -1,0 +1,8 @@
+#cloud-config
+package_update: true
+packages:
+  - curl
+  - git
+  - python3-pip
+runcmd:
+  - [ sh, -c, 'echo obs-admin baseline ready > /var/tmp/obs-admin-ready.txt' ]

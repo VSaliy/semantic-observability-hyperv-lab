@@ -1,0 +1,4 @@
+---
+- name: Include milestone note for baseline
+  ansible.builtin.debug:
+    msg: "Role baseline provides Milestone 2 automation foundation and is intentionally idempotent."

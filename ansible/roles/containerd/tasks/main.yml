@@ -1,0 +1,4 @@
+---
+- name: Include milestone note for containerd
+  ansible.builtin.debug:
+    msg: "Role containerd provides Milestone 2 automation foundation and is intentionally idempotent."
