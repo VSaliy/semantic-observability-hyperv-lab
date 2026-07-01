@@ -8,7 +8,10 @@ REDACTED = "[REDACTED]"
 
 def redact_value(value: Any) -> Any:
   if isinstance(value, dict):
-    return {key: (REDACTED if is_sensitive_key(key) else redact_value(item)) for key, item in value.items()}
+    return {
+      key: (REDACTED if is_sensitive_key(key) else redact_value(item))
+      for key, item in value.items()
+    }
   if isinstance(value, list):
     return [redact_value(item) for item in value]
   return value

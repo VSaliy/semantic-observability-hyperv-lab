@@ -25,7 +25,8 @@ dev = [
   "mypy==1.11.2",
   "pytest==8.3.3",
   "ruff==0.6.9",
-  "testcontainers[opensearch]==4.8.2"
+  "testcontainers[opensearch]==4.8.2",
+  "types-jsonschema==4.23.0.20240813"
 ]
 
 [tool.setuptools]
@@ -48,3 +49,7 @@ pythonpath = ["src"]
 python_version = "3.12"
 strict = true
 packages = ["semantic_indexer", "semantic_embedding_service"]
+
+[[tool.mypy.overrides]]
+module = ["kafka.*"]
+ignore_missing_imports = true

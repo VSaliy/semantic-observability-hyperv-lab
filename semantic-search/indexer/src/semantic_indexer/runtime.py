@@ -4,7 +4,7 @@ import json
 import logging
 import time
 
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaConsumer, KafkaProducer  # type: ignore[attr-defined]
 from prometheus_client import start_http_server
 
 from semantic_indexer.config import IndexerSettings

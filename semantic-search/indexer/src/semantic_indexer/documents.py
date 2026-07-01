@@ -5,7 +5,6 @@ from datetime import UTC
 
 from semantic_indexer.models import OperationalEvent, SemanticDocument
 
-
 DOCUMENT_TYPES = {
   "application.error": "log_template",
   "application.latency": "trace_summary",

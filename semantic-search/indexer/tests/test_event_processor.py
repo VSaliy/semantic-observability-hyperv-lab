@@ -8,7 +8,6 @@ import pytest
 
 from semantic_indexer.documents import deterministic_document_id
 from semantic_indexer.embeddings import DeterministicEmbeddingProvider
-from semantic_indexer.models import OperationalEvent
 from semantic_indexer.service import EventProcessor
 from semantic_indexer.validation import EventValidator
 
@@ -46,15 +45,19 @@ class FailingEmbedder:
 
 @pytest.fixture()
 def events() -> list[dict[str, Any]]:
-  return [json.loads(line) for line in FIXTURE_PATH.read_text(encoding="utf-8").splitlines() if line]
+  lines = FIXTURE_PATH.read_text(encoding="utf-8").splitlines()
+  return [json.loads(line) for line in lines if line]
 
 
 @pytest.fixture()
 def validator() -> EventValidator:
-  return EventValidator(str(SCHEMA_PATH), ["grafana.example", "kafka.example", "opensearch.example"])
+  allowed = ["grafana.example", "kafka.example", "opensearch.example"]
+  return EventValidator(str(SCHEMA_PATH), allowed)
 
 
-def build_processor(validator: EventValidator, embedder: Any | None = None) -> tuple[EventProcessor, InMemoryWriter, InMemoryProducer]:
+def build_processor(
+  validator: EventValidator, embedder: Any | None = None
+) -> tuple[EventProcessor, InMemoryWriter, InMemoryProducer]:
   writer = InMemoryWriter()
   producer = InMemoryProducer()
   processor = EventProcessor(
@@ -68,14 +71,18 @@ def build_processor(validator: EventValidator, embedder: Any | None = None) -> t
   return processor, writer, producer
 
 
-def test_valid_event_creates_document(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_valid_event_creates_document(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   processor, writer, _ = build_processor(validator)
   result = processor.process_payload(events[0])
   assert result.indexed == 1
   assert len(writer.documents) == 1
 
 
-def test_invalid_event_reaches_dead_letter_topic(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_invalid_event_reaches_dead_letter_topic(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   invalid = dict(events[0])
   invalid.pop("tenantId")
   processor, _, producer = build_processor(validator)
@@ -84,14 +91,18 @@ def test_invalid_event_reaches_dead_letter_topic(events: list[dict[str, Any]], v
   assert producer.messages[0]["topic"] == "semantic.dead-letter"
 
 
-def test_duplicate_delivery_creates_no_duplicate(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_duplicate_delivery_creates_no_duplicate(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   processor, writer, _ = build_processor(validator)
   processor.process_payload(events[0])
   processor.process_payload(events[0])
   assert len(writer.documents) == 1
 
 
-def test_redacted_values_never_reach_opensearch(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_redacted_values_never_reach_opensearch(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   processor, writer, _ = build_processor(validator)
   processor.process_payload(events[1])
   document = next(iter(writer.documents.values()))
@@ -107,20 +118,26 @@ def test_tenant_id_is_mandatory(events: list[dict[str, Any]], validator: EventVa
   assert producer.messages
 
 
-def test_evidence_references_survive_transformation(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_evidence_references_survive_transformation(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   processor, writer, _ = build_processor(validator)
   processor.process_payload(events[2])
   document = next(iter(writer.documents.values()))
   assert document["source_references"][0]["url"] == events[2]["evidence"][0]["url"]
 
 
-def test_embedding_failure_uses_bounded_retries(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_embedding_failure_uses_bounded_retries(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   processor, _, producer = build_processor(validator, FailingEmbedder(3))
   processor.process_payload(events[0])
   assert producer.messages[0]["value"]["reason"] == "embedding retries exhausted"
 
 
-def test_poison_messages_do_not_block_following_payloads(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_poison_messages_do_not_block_following_payloads(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   invalid = dict(events[0])
   invalid["evidence"] = [{"type": "log", "system": "grafana", "url": "ftp://bad.example/bad"}]
   processor, writer, producer = build_processor(validator)
@@ -131,6 +148,8 @@ def test_poison_messages_do_not_block_following_payloads(events: list[dict[str, 
   assert producer.messages
 
 
-def test_deterministic_document_id_matches_contract(events: list[dict[str, Any]], validator: EventValidator) -> None:
+def test_deterministic_document_id_matches_contract(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
   event = validator.parse(events[5])
   assert deterministic_document_id(event, "incident") == "c5e3f9ebd42b985d32185584"

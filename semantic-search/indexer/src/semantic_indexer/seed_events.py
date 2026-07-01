@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from kafka import KafkaProducer
+from kafka import KafkaProducer  # type: ignore[attr-defined]
 
 FIXTURE_PATH = Path(__file__).resolve().parents[2] / "fixtures" / "seed-events.jsonl"
 
@@ -17,7 +17,11 @@ def main() -> None:
     if not line.strip():
       continue
     payload = json.loads(line)
-    producer.send("platform.telemetry-events", key=payload["eventId"].encode("utf-8"), value=payload)
+    producer.send(
+      "platform.telemetry-events",
+      key=payload["eventId"].encode("utf-8"),
+      value=payload,
+    )
   producer.flush()
 
 
