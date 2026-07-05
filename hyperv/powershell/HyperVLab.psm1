@@ -316,20 +316,23 @@ function New-CloudInitSeedStaging {
     Writes cloud-init NoCloud seed files (meta-data, user-data, network-config) to a staging folder.
   .DESCRIPTION
     Creates a per-VM staging directory populated with the three NoCloud files. The user-data is
-    copied from an existing #cloud-config document. The staging folder can later be turned into a
-    NoCloud seed image with New-CloudInitSeedImage. This function performs only filesystem writes
-    and is safe to unit test.
+    taken from an existing #cloud-config document (-UserDataPath) or from an in-memory string
+    (-UserDataContent, used for rendered autoinstall so secrets never touch the repository). The
+    staging folder can later be turned into a NoCloud seed image with New-CloudInitSeedImage.
   .OUTPUTS
     The absolute path to the staging directory that was created.
   #>
-  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low', DefaultParameterSetName = 'FromFile')]
   [OutputType([string])]
   param(
     [Parameter(Mandatory)]
     [string]$VmName,
 
-    [Parameter(Mandatory)]
+    [Parameter(Mandatory, ParameterSetName = 'FromFile')]
     [string]$UserDataPath,
+
+    [Parameter(Mandatory, ParameterSetName = 'FromContent')]
+    [string]$UserDataContent,
 
     [Parameter(Mandatory)]
     [string]$OutputRootPath,
@@ -339,13 +342,18 @@ function New-CloudInitSeedStaging {
     [string]$NetworkConfig
   )
 
-  if (-not (Test-Path -LiteralPath $UserDataPath)) {
-    throw "cloud-init user-data not found: $UserDataPath"
+  if ($PSCmdlet.ParameterSetName -eq 'FromContent') {
+    $userData = $UserDataContent
+  }
+  else {
+    if (-not (Test-Path -LiteralPath $UserDataPath)) {
+      throw "cloud-init user-data not found: $UserDataPath"
+    }
+    $userData = Get-Content -LiteralPath $UserDataPath -Raw
   }
 
-  $userData = Get-Content -LiteralPath $UserDataPath -Raw
   if ($userData -notmatch '^\s*#cloud-config') {
-    throw "cloud-init user-data must begin with '#cloud-config': $UserDataPath"
+    throw "cloud-init user-data must begin with '#cloud-config'."
   }
 
   $seedDirectory = Join-Path -Path $OutputRootPath -ChildPath $VmName
@@ -366,6 +374,187 @@ function New-CloudInitSeedStaging {
   }
 
   return $seedDirectory
+}
+
+function Import-DotEnv {
+  <#
+  .SYNOPSIS
+    Loads KEY=VALUE pairs from a .env file into a hashtable.
+  .DESCRIPTION
+    Parses a dotenv file, ignoring blank lines and '#' comments, splitting on the first '='
+    and stripping matching surrounding quotes. This function never writes the values to output
+    or logs; treat the returned hashtable as sensitive and keep it out of the repository.
+  .OUTPUTS
+    A hashtable of key/value pairs.
+  #>
+  [CmdletBinding()]
+  [OutputType([hashtable])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$Path
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw ".env file not found: $Path"
+  }
+
+  $values = @{}
+  foreach ($line in (Get-Content -LiteralPath $Path)) {
+    $trimmed = $line.Trim()
+    if ([string]::IsNullOrWhiteSpace($trimmed) -or $trimmed.StartsWith('#')) {
+      continue
+    }
+    $separatorIndex = $line.IndexOf('=')
+    if ($separatorIndex -lt 1) {
+      continue
+    }
+    $key = $line.Substring(0, $separatorIndex).Trim()
+    $value = $line.Substring($separatorIndex + 1).Trim()
+    if ($value.Length -ge 2 -and (
+        ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+        ($value.StartsWith("'") -and $value.EndsWith("'")))) {
+      $value = $value.Substring(1, $value.Length - 2)
+    }
+    $values[$key] = $value
+  }
+
+  return $values
+}
+
+function Get-AutoinstallUserData {
+  <#
+  .SYNOPSIS
+    Renders an Ubuntu autoinstall user-data document from a template and secret values.
+  .DESCRIPTION
+    Substitutes the template placeholders and expands the SSH authorized-keys list from the
+    supplied values (typically loaded with Import-DotEnv). The returned string contains
+    credentials and is intended to be written only to the seed staging area outside the
+    repository; it must never be committed or logged.
+  .OUTPUTS
+    The rendered autoinstall user-data as a string.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$TemplatePath,
+
+    [Parameter(Mandatory)]
+    [hashtable]$Values,
+
+    [Parameter(Mandatory)]
+    [string]$Hostname
+  )
+
+  if (-not (Test-Path -LiteralPath $TemplatePath)) {
+    throw "autoinstall template not found: $TemplatePath"
+  }
+
+  $required = @(
+    'LAB_AUTOINSTALL_USERNAME',
+    'LAB_AUTOINSTALL_FULL_NAME',
+    'LAB_AUTOINSTALL_PASSWORD_HASH',
+    'LAB_AUTOINSTALL_SSH_AUTHORIZED_KEYS'
+  )
+  $missing = @($required | Where-Object { [string]::IsNullOrWhiteSpace([string]$Values[$_]) })
+  if ($missing.Count -gt 0) {
+    throw ('Missing required autoinstall values: {0}' -f ($missing -join ', '))
+  }
+
+  $content = Get-Content -LiteralPath $TemplatePath -Raw
+  $content = $content.Replace('${LAB_VM_HOSTNAME}', $Hostname)
+  $content = $content.Replace('${LAB_AUTOINSTALL_FULL_NAME}', [string]$Values['LAB_AUTOINSTALL_FULL_NAME'])
+  $content = $content.Replace('${LAB_AUTOINSTALL_USERNAME}', [string]$Values['LAB_AUTOINSTALL_USERNAME'])
+  $content = $content.Replace('${LAB_AUTOINSTALL_PASSWORD_HASH}', [string]$Values['LAB_AUTOINSTALL_PASSWORD_HASH'])
+
+  $keys = [string]$Values['LAB_AUTOINSTALL_SSH_AUTHORIZED_KEYS'] -split '[\r\n;]+' |
+    ForEach-Object { $_.Trim() } |
+    Where-Object { $_ }
+  $keyLines = ($keys | ForEach-Object { '      - {0}' -f $_ }) -join "`n"
+  $content = $content.Replace('__SSH_AUTHORIZED_KEYS__', $keyLines)
+
+  if ($content -match '\$\{[A-Z_]+\}' -or $content.Contains('__SSH_AUTHORIZED_KEYS__')) {
+    throw 'autoinstall template still contains unresolved placeholders.'
+  }
+
+  return $content
+}
+
+function ConvertTo-WslPath {
+  <#
+  .SYNOPSIS
+    Converts a Windows drive path to its WSL /mnt equivalent.
+  .EXAMPLE
+    ConvertTo-WslPath -Path 'E:\ISO\ubuntu.iso'  # -> /mnt/e/ISO/ubuntu.iso
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$Path
+  )
+
+  if ($Path -notmatch '^[A-Za-z]:[\\/]') {
+    throw "Path must be a rooted Windows drive path (for example 'E:\ISO\file.iso'): $Path"
+  }
+
+  $drive = $Path.Substring(0, 1).ToLowerInvariant()
+  $rest = $Path.Substring(2) -replace '\\', '/'
+  $rest = $rest.TrimStart('/')
+  return "/mnt/$drive/$rest"
+}
+
+function Add-AutoinstallKernelArgument {
+  <#
+  .SYNOPSIS
+    Injects one or more kernel arguments (default 'autoinstall') into the GRUB kernel lines.
+  .DESCRIPTION
+    Adds the requested arguments immediately after the Ubuntu casper kernel image on every
+    'linux /casper/vmlinuz ...' line, skipping arguments that are already present. Idempotent.
+  .OUTPUTS
+    The modified GRUB configuration text.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$GrubConfiguration,
+
+    [string[]]$KernelArguments = @('autoinstall')
+  )
+
+  $lines = $GrubConfiguration -split "`r?`n"
+  $found = $false
+
+  for ($i = 0; $i -lt $lines.Count; $i++) {
+    if ($lines[$i] -notmatch 'vmlinuz') {
+      continue
+    }
+    $found = $true
+    $indent = [regex]::Match($lines[$i], '^\s*').Value
+    $tokens = @($lines[$i] -split '\s+' | Where-Object { $_ -ne '' })
+
+    $vmIndex = -1
+    for ($j = 0; $j -lt $tokens.Count; $j++) {
+      if ($tokens[$j] -like '*vmlinuz*') { $vmIndex = $j; break }
+    }
+    if ($vmIndex -lt 0) { continue }
+
+    $missing = @($KernelArguments | Where-Object { $tokens -notcontains $_ })
+    if ($missing.Count -eq 0) { continue }
+
+    $newTokens = @($tokens[0..$vmIndex]) + $missing
+    if ($vmIndex -lt ($tokens.Count - 1)) {
+      $newTokens += $tokens[($vmIndex + 1)..($tokens.Count - 1)]
+    }
+    $lines[$i] = $indent + ($newTokens -join ' ')
+  }
+
+  if (-not $found) {
+    throw 'No /casper/vmlinuz kernel line found in the GRUB configuration.'
+  }
+
+  return ($lines -join "`n")
 }
 
 function Get-LabAnsibleInventory {
@@ -491,6 +680,8 @@ function New-LabVirtualMachine {
     By default the VM is only created when it does not already exist. A leftover virtual disk
     at the target path (for example from a VM removed without its disk) stops creation with a
     clear error. Use -Force to delete such a leftover disk and recreate the VM cleanly.
+    Secure Boot is configured for Linux guests (Microsoft UEFI CA template) so Ubuntu boots
+    on Generation 2; pass -SecureBootTemplate 'Off' to disable Secure Boot entirely.
   #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
   [OutputType([bool])]
@@ -514,6 +705,8 @@ function New-LabVirtualMachine {
     [string]$VhdPath,
 
     [int]$Generation = 2,
+
+    [string]$SecureBootTemplate = 'MicrosoftUEFICertificateAuthority',
 
     [switch]$Force
   )
@@ -555,6 +748,15 @@ function New-LabVirtualMachine {
     -SwitchName $primarySwitch | Out-Null
 
   Set-VMProcessor -VMName $Name -Count $CpuCount
+
+  if ($Generation -eq 2) {
+    if ($SecureBootTemplate -eq 'Off') {
+      Set-VMFirmware -VMName $Name -EnableSecureBoot Off
+    }
+    else {
+      Set-VMFirmware -VMName $Name -EnableSecureBoot On -SecureBootTemplate $SecureBootTemplate
+    }
+  }
 
   foreach ($additionalSwitch in ($SwitchNames | Select-Object -Skip 1)) {
     Add-VMNetworkAdapter -VMName $Name -SwitchName $additionalSwitch
@@ -830,6 +1032,204 @@ function Add-LabCloudInitDisk {
   return $true
 }
 
+function Add-LabInstallMedia {
+  <#
+  .SYNOPSIS
+    Attaches an OS installer ISO to a virtual machine and optionally makes it the first boot device.
+  .DESCRIPTION
+    Idempotently attaches the installer ISO (for example the Ubuntu Server live-server image) as a
+    DVD drive. When -SetFirstBootDevice is used, the Generation 2 firmware boot order is set so the
+    VM boots the installer. Returns $true when a change was made.
+  #>
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+  [OutputType([bool])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$VmName,
+
+    [Parameter(Mandatory)]
+    [string]$IsoPath,
+
+    [switch]$SetFirstBootDevice
+  )
+
+  if (-not (Test-HyperVAvailable)) {
+    throw 'Hyper-V cmdlets are not available on this host.'
+  }
+  if (-not (Test-Path -LiteralPath $IsoPath)) {
+    throw "installer ISO not found: $IsoPath"
+  }
+
+  $changed = $false
+  $drive = Get-VMDvdDrive -VMName $VmName -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq $IsoPath } |
+    Select-Object -First 1
+
+  if (-not $drive) {
+    if ($PSCmdlet.ShouldProcess($VmName, "Attach installer media $IsoPath")) {
+      $drive = Add-VMDvdDrive -VMName $VmName -Path $IsoPath -Passthru
+      $changed = $true
+    }
+  }
+  else {
+    Write-Verbose "Installer media '$IsoPath' is already attached to '$VmName'."
+  }
+
+  if ($SetFirstBootDevice -and $drive) {
+    if ($PSCmdlet.ShouldProcess($VmName, 'Set installer DVD as first boot device')) {
+      Set-VMFirmware -VMName $VmName -FirstBootDevice $drive
+      $changed = $true
+    }
+  }
+
+  return $changed
+}
+
+function New-AutoinstallIso {
+  <#
+  .SYNOPSIS
+    Builds an autoinstall-enabled Ubuntu Server ISO from a source ISO.
+  .DESCRIPTION
+    Injects the 'autoinstall' kernel argument into the ISO's GRUB configuration and repacks a
+    UEFI-bootable ISO with xorriso, preserving the original boot structure ('-boot_image any
+    replay'). No credentials are placed in the ISO; the per-VM cloud-init cidata seed supplies
+    the autoinstall data at install time.
+
+    The primary engine uses the host's WSL installation (xorriso must be installed in the
+    distribution). Pass -Engine docker to use a container instead (slower; installs xorriso on
+    each run). Idempotent: an existing output ISO is reused unless -Force is set.
+  .OUTPUTS
+    The absolute path to the autoinstall ISO.
+  #>
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$SourceIsoPath,
+
+    [Parameter(Mandatory)]
+    [string]$OutputIsoPath,
+
+    [string[]]$KernelArguments = @('autoinstall'),
+
+    [ValidateSet('wsl', 'docker')]
+    [string]$Engine = 'wsl',
+
+    [string]$WslDistribution,
+
+    [string]$DockerImage = 'ubuntu:24.04',
+
+    [switch]$Force
+  )
+
+  if (-not (Test-Path -LiteralPath $SourceIsoPath)) {
+    throw "source ISO not found: $SourceIsoPath"
+  }
+  if ((Test-Path -LiteralPath $OutputIsoPath) -and -not $Force) {
+    Write-Verbose "Autoinstall ISO '$OutputIsoPath' already exists; reusing it (use -Force to rebuild)."
+    return $OutputIsoPath
+  }
+  if (-not $PSCmdlet.ShouldProcess($OutputIsoPath, "Build autoinstall ISO from $SourceIsoPath")) {
+    return $OutputIsoPath
+  }
+
+  $workDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ('autoinstall-iso-{0}' -f ([guid]::NewGuid()))
+  New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+  $grubHostPath = Join-Path -Path $workDir -ChildPath 'grub.cfg'
+
+  try {
+    if ($Engine -eq 'wsl') {
+      if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
+        throw 'wsl.exe is not available. Install WSL with an Ubuntu distribution or use -Engine docker.'
+      }
+      $distroArgs = @()
+      if (-not [string]::IsNullOrWhiteSpace($WslDistribution)) { $distroArgs = @('-d', $WslDistribution) }
+
+      $wslIso = ConvertTo-WslPath -Path $SourceIsoPath
+      $wslOut = ConvertTo-WslPath -Path $OutputIsoPath
+      $wslGrub = ConvertTo-WslPath -Path $grubHostPath
+
+      $extract = "set -e; command -v osirrox >/dev/null 2>&1 || { echo MISSING_XORRISO; exit 3; }; osirrox -indev '$wslIso' -extract /boot/grub/grub.cfg '$wslGrub'"
+      $extractOut = & wsl @distroArgs -- bash -lc $extract 2>&1
+      if ($LASTEXITCODE -eq 3 -or ($extractOut -match 'MISSING_XORRISO')) {
+        $install = 'sudo apt-get update && sudo apt-get install -y xorriso'
+        if ($distroArgs.Count -gt 0) { $install = "wsl -d $WslDistribution $install" } else { $install = "wsl $install" }
+        throw "xorriso is not installed in WSL. Install it with: $install"
+      }
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to extract grub.cfg via WSL (exit $LASTEXITCODE): $extractOut"
+      }
+
+      $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
+
+      $repack = "set -e; xorriso -indev '$wslIso' -outdev '$wslOut' -boot_image any replay -map '$wslGrub' /boot/grub/grub.cfg -end"
+      $repackOut = & wsl @distroArgs -- bash -lc $repack 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to repack ISO via WSL (exit $LASTEXITCODE): $repackOut"
+      }
+    }
+    else {
+      if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        throw 'docker is not available. Install Docker or use -Engine wsl.'
+      }
+      $isoDir = (Split-Path -Path $SourceIsoPath -Parent) -replace '\\', '/'
+      $isoName = Split-Path -Path $SourceIsoPath -Leaf
+      $outDir = (Split-Path -Path $OutputIsoPath -Parent) -replace '\\', '/'
+      $outName = Split-Path -Path $OutputIsoPath -Leaf
+      $workDirFwd = $workDir -replace '\\', '/'
+      $aptPrefix = 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq xorriso >/dev/null 2>&1;'
+
+      $extract = "set -e; $aptPrefix osirrox -indev '/iso/$isoName' -extract /boot/grub/grub.cfg /work/grub.cfg"
+      $extractOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" $DockerImage bash -lc $extract 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to extract grub.cfg via Docker (exit $LASTEXITCODE): $extractOut"
+      }
+
+      $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
+
+      $repack = "set -e; $aptPrefix xorriso -indev '/iso/$isoName' -outdev '/out/$outName' -boot_image any replay -map /work/grub.cfg /boot/grub/grub.cfg -end"
+      $repackOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" -v "${outDir}:/out" $DockerImage bash -lc $repack 2>&1
+      if ($LASTEXITCODE -ne 0) {
+        throw "Failed to repack ISO via Docker (exit $LASTEXITCODE): $repackOut"
+      }
+    }
+  }
+  finally {
+    if (Test-Path -LiteralPath $workDir) {
+      Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  return $OutputIsoPath
+}
+
+function Update-GrubConfigFile {
+  <#
+  .SYNOPSIS
+    Applies Add-AutoinstallKernelArgument to a grub.cfg file in place.
+  #>
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$Path,
+
+    [string[]]$KernelArguments = @('autoinstall')
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    throw "grub.cfg not found (extraction may have failed): $Path"
+  }
+  if (-not $PSCmdlet.ShouldProcess($Path, 'Inject autoinstall kernel arguments')) {
+    return $Path
+  }
+
+  $content = Get-Content -LiteralPath $Path -Raw
+  $updated = Add-AutoinstallKernelArgument -GrubConfiguration $content -KernelArguments $KernelArguments
+  Set-Content -LiteralPath $Path -Value $updated -NoNewline:$false
+  return $Path
+}
+
 function Invoke-LabProvisioning {
   <#
   .SYNOPSIS
@@ -840,6 +1240,13 @@ function Invoke-LabProvisioning {
     seed image is built and attached to every VM that declares a cloudInit user-data file.
     Use -Rebuild for a clean rebuild: existing lab VMs and their disks are removed and
     recreated. Virtual switches (and any NAT) are always left in place.
+    When -InstallIsoPath (or an installIso key in configuration) is supplied, that ISO is
+    attached to every VM and set as the first boot device so the guests boot the installer.
+    With -Autoinstall, an unattended Ubuntu autoinstall NoCloud seed is rendered per VM from
+    the template and secrets in the .env file (-EnvFile); the rendered credentials are written
+    only to the staging area (outside the repository) and are never logged.
+    With -BuildAutoinstallIso, the installer ISO is first remastered (via WSL, or -IsoEngine
+    docker) to inject the 'autoinstall' kernel argument so the install runs fully hands-off.
     Supports -WhatIf and -Verbose.
   #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
@@ -858,11 +1265,57 @@ function Invoke-LabProvisioning {
 
     [string[]]$DnsServers = @('1.1.1.1', '9.9.9.9'),
 
+    [string]$InstallIsoPath,
+
+    [switch]$Autoinstall,
+
+    [string]$EnvFile = (Join-Path -Path $PSScriptRoot -ChildPath '..\..\.env'),
+
+    [string]$AutoinstallTemplatePath = (Join-Path -Path $PSScriptRoot -ChildPath '..\cloud-init\autoinstall\user-data.template'),
+
+    [switch]$BuildAutoinstallIso,
+
+    [ValidateSet('wsl', 'docker')]
+    [string]$IsoEngine = 'wsl',
+
     [switch]$Rebuild
   )
 
   if (-not (Test-HyperVAvailable)) {
     throw 'Hyper-V cmdlets are not available on this host.'
+  }
+
+  if ([string]::IsNullOrWhiteSpace($InstallIsoPath) -and $Configuration['installIso']) {
+    $InstallIsoPath = [string]$Configuration['installIso']
+  }
+  if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath) -and -not (Test-Path -LiteralPath $InstallIsoPath)) {
+    throw "installer ISO not found: $InstallIsoPath"
+  }
+
+  if ($BuildAutoinstallIso) {
+    if ([string]::IsNullOrWhiteSpace($InstallIsoPath)) {
+      throw '-BuildAutoinstallIso requires -InstallIsoPath (or an installIso key in configuration) as the source ISO.'
+    }
+    $sourceDir = Split-Path -Path $InstallIsoPath -Parent
+    $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($InstallIsoPath)
+    $autoinstallIsoPath = Join-Path -Path $sourceDir -ChildPath ('{0}-autoinstall.iso' -f $sourceBase)
+    $InstallIsoPath = New-AutoinstallIso -SourceIsoPath $InstallIsoPath -OutputIsoPath $autoinstallIsoPath `
+      -Engine $IsoEngine -Force:$Rebuild -Confirm:$false
+  }
+
+  $autoinstallValues = $null
+  if ($Autoinstall) {
+    if ([string]::IsNullOrWhiteSpace($InstallIsoPath)) {
+      throw '-Autoinstall requires -InstallIsoPath (or an installIso key in configuration).'
+    }
+    if (-not (Test-OscdimgAvailable)) {
+      throw '-Autoinstall requires oscdimg.exe (Windows ADK Deployment Tools) to build the NoCloud seed.'
+    }
+    if (-not (Test-Path -LiteralPath $AutoinstallTemplatePath)) {
+      throw "autoinstall template not found: $AutoinstallTemplatePath"
+    }
+    # Loaded once; treated as sensitive and never written back to the repository or logs.
+    $autoinstallValues = Import-DotEnv -Path $EnvFile
   }
 
   $null = Test-LabVmDefinition -Configuration $Configuration
@@ -888,12 +1341,12 @@ function Invoke-LabProvisioning {
     }
   }
 
-  if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath)) {
+  if ((-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath)) -or $Autoinstall) {
     if ([string]::IsNullOrWhiteSpace($CloudInitStagingPath)) {
       $CloudInitStagingPath = Join-Path -Path $VhdRootPath -ChildPath 'cloud-init-seeds'
     }
     $oscdimgAvailable = Test-OscdimgAvailable
-    if (-not $oscdimgAvailable) {
+    if (-not $oscdimgAvailable -and -not $Autoinstall) {
       Write-Warning 'oscdimg.exe is not available; skipping cloud-init seed generation. Install the Windows ADK to enable it.'
     }
   }
@@ -919,23 +1372,39 @@ function Invoke-LabProvisioning {
       -Force:$Rebuild `
       -Confirm:$false | Out-Null
 
-    if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {
-      $userDataPath = Join-Path -Path $CloudInitSourcePath -ChildPath $vm.CloudInit
-      $networkConfig = $null
-      if ($vm.IpAddress) {
-        $networkConfig = Get-CloudInitNetworkConfig -StaticIpCidr $vm.IpAddress -DnsServers $DnsServers
-      }
+    $networkConfig = $null
+    if ($vm.IpAddress) {
+      $networkConfig = Get-CloudInitNetworkConfig -StaticIpCidr $vm.IpAddress -DnsServers $DnsServers
+    }
 
+    $seedDirectory = $null
+    if ($Autoinstall) {
+      $userData = Get-AutoinstallUserData -TemplatePath $AutoinstallTemplatePath -Values $autoinstallValues -Hostname $vm.Hostname
+      $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name `
+        -UserDataContent $userData `
+        -OutputRootPath $CloudInitStagingPath `
+        -Hostname $vm.Hostname `
+        -NetworkConfig $networkConfig `
+        -Confirm:$false
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {
+      $userDataPath = Join-Path -Path $CloudInitSourcePath -ChildPath $vm.CloudInit
       $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name `
         -UserDataPath $userDataPath `
         -OutputRootPath $CloudInitStagingPath `
         -Hostname $vm.Hostname `
         -NetworkConfig $networkConfig `
         -Confirm:$false
+    }
 
+    if ($seedDirectory) {
       $isoPath = Join-Path -Path $CloudInitStagingPath -ChildPath ('{0}-cidata.iso' -f $vm.Name)
       New-CloudInitSeedImage -SeedDirectory $seedDirectory -OutputIsoPath $isoPath -Confirm:$false | Out-Null
       Add-LabCloudInitDisk -VmName $vm.Name -IsoPath $isoPath -Confirm:$false | Out-Null
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
+      Add-LabInstallMedia -VmName $vm.Name -IsoPath $InstallIsoPath -SetFirstBootDevice -Confirm:$false | Out-Null
     }
   }
 }
@@ -976,12 +1445,18 @@ Export-ModuleMember -Function `
   Get-CloudInitMetadata, `
   Get-CloudInitNetworkConfig, `
   New-CloudInitSeedStaging, `
+  Import-DotEnv, `
+  Get-AutoinstallUserData, `
+  ConvertTo-WslPath, `
+  Add-AutoinstallKernelArgument, `
+  New-AutoinstallIso, `
   Get-LabAnsibleInventory, `
   Test-HyperVAvailable, `
   Test-OscdimgAvailable, `
   Get-OscdimgPath, `
   New-CloudInitSeedImage, `
   Add-LabCloudInitDisk, `
+  Add-LabInstallMedia, `
   New-LabVirtualSwitch, `
   New-LabVirtualMachine, `
   Start-LabVirtualMachine, `

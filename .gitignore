@@ -5,6 +5,8 @@ __pycache__/
 .ruff_cache/
 .venv/
 .env
+.env.*
+!.env.example
 .idea/
 .vscode/
 .DS_Store
@@ -21,3 +23,8 @@ terraform/**/.terraform/
 terraform/**/*.tfstate*
 compose-data/
 *.log
+
+# Generated cloud-init NoCloud seeds may contain rendered credentials; never commit them.
+**/cloud-init-seeds/
+*-cidata.iso
+

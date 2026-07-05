@@ -56,6 +56,18 @@ If `oscdimg.exe` is not installed, seed generation is skipped with a warning and
 the VMs are still created; install the Windows ADK "Deployment Tools" to enable
 automatic seeding, or build the ISO manually with `genisoimage`/`mkisofs`.
 
+## Autoinstall (unattended installer ISO)
+
+For the Ubuntu Server **installer ISO** path, `autoinstall/user-data.template`
+holds a placeholder-only autoinstall document. At provisioning time
+(`Invoke-LabProvisioning -Autoinstall`), `Import-DotEnv` reads secrets from a
+gitignored `.env` and `Get-AutoinstallUserData` renders them into the NoCloud
+`user-data` written to the seed staging area **outside** the repository.
+
+- The template contains **no secrets** and is safe to commit.
+- Real credentials live only in `.env` (see the repo-root `.env.example`).
+- Rendered seeds and `*-cidata.iso` are gitignored so they are never committed.
+
 ## Assumptions
 
 - Ubuntu Server 24.04 cloud image (Generation 2 VM, UEFI).

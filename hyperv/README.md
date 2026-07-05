@@ -89,13 +89,111 @@ Remove-LabVirtualMachine -Name k8s-cp1 -RemoveDisks        # single VM + its dis
 > recreation. `New-LabVirtualMachine` reports this clearly; `-Rebuild` / `-Force`
 > deletes the stale disk automatically.
 
+## Installing the guest OS
+
+New VMs are created with **blank** VHDX disks, so they need an OS. Generation 2
+VMs are created with the **Microsoft UEFI CA** Secure Boot template so Ubuntu
+boots (the default Windows template would block it). There are two paths:
+
+### Path A - Ubuntu cloud image (smoothest, zero-touch)
+
+The cloud-init files in `cloud-init/` are **runtime** cloud-config, which is what
+Ubuntu **cloud images** consume on first boot. Download
+`ubuntu-24.04-server-cloudimg-amd64.img`, convert it to a VHDX, place it at
+`<VhdRootPath>\<vm>.vhdx`, and provision **without** `-Rebuild` (so the prepared
+disk is kept). The attached NoCloud seed then configures the running guest.
+
+### Path B - Ubuntu Server installer ISO (what you have at `E:\ISO`)
+
+Attach the installer and boot it. Provisioning sets the ISO as the first boot
+device automatically:
+
+```powershell
+Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
+  -CloudInitSourcePath ./hyperv/cloud-init `
+  -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso'
+# or set installIso in lab-config.yaml, or use provision-lab.ps1 -InstallIsoPath
+```
+
+Then install the OS one of two ways:
+
+- **Manual:** open each VM's console and click through the Ubuntu Server
+  installer. The runtime cloud-config in `cloud-init/` does **not** drive the
+  installer, so configure the user and SSH key during setup.
+- **Unattended (autoinstall):** run provisioning with `-Autoinstall`. Secrets are
+  read from a gitignored `.env` and rendered into a per-VM autoinstall seed:
+
+  ```powershell
+  Copy-Item .env.example .env   # then edit .env with real values (never commit it)
+  Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
+    -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' -Autoinstall
+  # or: ./hyperv/powershell/provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' `
+  #        -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' -Autoinstall
+  ```
+
+  The autoinstall template lives at `cloud-init/autoinstall/user-data.template`
+  and contains **placeholders only**. `Import-DotEnv` loads the secrets and
+  `Get-AutoinstallUserData` renders them into `user-data`, which is written to the
+  seed staging area **outside the repository** (default
+  `<VhdRootPath>\cloud-init-seeds`, gitignored). Secrets are never written into
+  the repo or logged. Required `.env` keys:
+
+  | Key | Purpose |
+  | --- | --- |
+  | `LAB_AUTOINSTALL_USERNAME` | Login account created on each guest |
+  | `LAB_AUTOINSTALL_FULL_NAME` | Account display name |
+  | `LAB_AUTOINSTALL_PASSWORD_HASH` | SHA-512 crypt hash (`openssl passwd -6`) |
+  | `LAB_AUTOINSTALL_SSH_AUTHORIZED_KEYS` | One or more public keys (newline/`;` separated) |
+
+  > A stock live-server ISO still asks to confirm autoinstall unless the
+  > `autoinstall` kernel argument is added at the GRUB prompt (or the ISO is
+  > repacked). Add it once per VM on first boot to run fully hands-off.
+
+  **Fully automatic (recommended): remaster the ISO with `-BuildAutoinstallIso`.**
+  This injects the `autoinstall` kernel argument into the installer ISO's GRUB
+  config and repacks a UEFI-bootable `…-autoinstall.iso`, so no GRUB keypress is
+  needed. It uses the **host WSL** installation and `xorriso` by default; pass
+  `-IsoEngine docker` to build in a container instead.
+
+  ```powershell
+  # One-time in your WSL Ubuntu distro:
+  Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
+    -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' `
+    -Autoinstall -BuildAutoinstallIso            # add -IsoEngine docker to use Docker
+  ```
+
+  The remastered ISO is **secret-free** (it only carries the kernel flag); the
+  credentials stay on the per-VM cidata seed. The build is idempotent — the
+  `…-autoinstall.iso` is reused unless `-Rebuild` is set. You can also call the
+  builder directly:
+
+  ```powershell
+  New-AutoinstallIso -SourceIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' `
+    -OutputIsoPath 'E:\ISO\ubuntu-24.04.3-autoinstall.iso'   # -Engine docker optional
+  ```
+
+  > `xorriso`'s `-boot_image any replay` preserves the original UEFI boot
+  > structure. `-Engine docker` installs `xorriso` in the container on each run
+  > (slower); WSL is the faster default.
+
+After the install finishes, detach the installer so the VM boots from disk:
+
+```powershell
+Get-VMDvdDrive -VMName k8s-cp1 | Where-Object { $_.Path -like '*live-server*' } | Set-VMDvdDrive -Path $null
+Set-VMFirmware -VMName k8s-cp1 -FirstBootDevice (Get-VMHardDiskDrive -VMName k8s-cp1)
+```
+
 ## Prerequisites
 
 - Windows 11 Pro with the Hyper-V role enabled.
-- An Ubuntu Server 24.04 Generation 2 base VHDX (or use the cloud image).
+- A guest OS source: an Ubuntu 24.04 **cloud image** VHDX (Path A) or the
+  **installer ISO** at, e.g., `E:\ISO\ubuntu-24.04.3-live-server-amd64.iso` (Path B).
 - `powershell-yaml` module for YAML parsing.
 - Windows ADK "Deployment Tools" (`oscdimg.exe`) for cloud-init seed images
   (optional — seeding is skipped with a warning if it is missing).
+- For automatic autoinstall ISO remastering (`-BuildAutoinstallIso`): WSL with an
+  Ubuntu distribution and `xorriso` installed (`sudo apt-get install -y xorriso`),
+  or Docker (`-IsoEngine docker`).
 - Add your SSH public key to the cloud-init files before provisioning
   (see `cloud-init/README.md`).
 

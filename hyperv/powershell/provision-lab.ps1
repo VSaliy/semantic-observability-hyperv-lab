@@ -30,6 +30,17 @@ param(
 
   [string]$CloudInitSourcePath,
 
+  [string]$InstallIsoPath,
+
+  [switch]$Autoinstall,
+
+  [string]$EnvFile,
+
+  [switch]$BuildAutoinstallIso,
+
+  [ValidateSet('wsl', 'docker')]
+  [string]$IsoEngine = 'wsl',
+
   [switch]$Rebuild
 )
 
@@ -57,6 +68,19 @@ $provisioningParameters = @{
 }
 if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath)) {
   $provisioningParameters['CloudInitSourcePath'] = $CloudInitSourcePath
+}
+if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
+  $provisioningParameters['InstallIsoPath'] = $InstallIsoPath
+}
+if ($Autoinstall) {
+  $provisioningParameters['Autoinstall'] = $true
+}
+if (-not [string]::IsNullOrWhiteSpace($EnvFile)) {
+  $provisioningParameters['EnvFile'] = $EnvFile
+}
+if ($BuildAutoinstallIso) {
+  $provisioningParameters['BuildAutoinstallIso'] = $true
+  $provisioningParameters['IsoEngine'] = $IsoEngine
 }
 
 Invoke-LabProvisioning @provisioningParameters

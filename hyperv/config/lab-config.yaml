@@ -27,6 +27,10 @@ dnsServers:
   - 1.1.1.1
   - 9.9.9.9
 
+# Optional: attach an OS installer ISO to every VM and boot from it.
+# Uncomment and point at your image, or pass -InstallIsoPath at provisioning time.
+# installIso: E:\ISO\ubuntu-24.04.3-live-server-amd64.iso
+
 vms:
   obs-admin:
     role: admin

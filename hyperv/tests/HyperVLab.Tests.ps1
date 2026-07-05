@@ -147,6 +147,15 @@ Describe 'Hyper-V lifecycle guards' {
         Should -Throw '*Hyper-V cmdlets are not available*'
     }
   }
+
+  It 'throws a clear error when attaching installer media without Hyper-V' {
+    InModuleScope HyperVLab {
+      Mock Test-HyperVAvailable { $false }
+
+      { Add-LabInstallMedia -VmName 'obs-admin' -IsoPath 'E:\ISO\ubuntu.iso' } |
+        Should -Throw '*Hyper-V cmdlets are not available*'
+    }
+  }
 }
 
 Describe 'Get-CloudInitNetworkConfig' {
@@ -297,6 +306,147 @@ Describe 'Test-OscdimgAvailable' {
   }
 }
 
+Describe 'Import-DotEnv' {
+  It 'parses key/value pairs and ignores comments and blank lines' {
+    $envFile = Join-Path -Path $TestDrive -ChildPath 'sample.env'
+    $lines = @(
+      '# a comment',
+      '',
+      'LAB_AUTOINSTALL_USERNAME=labadmin',
+      'LAB_AUTOINSTALL_FULL_NAME="Lab Administrator"',
+      'LAB_AUTOINSTALL_PASSWORD_HASH=$6$abc$def=='
+    )
+    Set-Content -LiteralPath $envFile -Value ($lines -join "`n")
+
+    $values = Import-DotEnv -Path $envFile
+    $values['LAB_AUTOINSTALL_USERNAME'] | Should -Be 'labadmin'
+    $values['LAB_AUTOINSTALL_FULL_NAME'] | Should -Be 'Lab Administrator'
+    $values['LAB_AUTOINSTALL_PASSWORD_HASH'] | Should -Be '$6$abc$def=='
+  }
+
+  It 'throws when the file is missing' {
+    { Import-DotEnv -Path (Join-Path -Path $TestDrive -ChildPath 'missing.env') } | Should -Throw '*not found*'
+  }
+}
+
+Describe 'Get-AutoinstallUserData' {
+  BeforeAll {
+    $script:template = Join-Path -Path $TestDrive -ChildPath 'user-data.template'
+    $templateLines = @(
+      '#cloud-config',
+      'autoinstall:',
+      '  identity:',
+      '    realname: "${LAB_AUTOINSTALL_FULL_NAME}"',
+      '    hostname: ${LAB_VM_HOSTNAME}',
+      '    username: ${LAB_AUTOINSTALL_USERNAME}',
+      '    password: "${LAB_AUTOINSTALL_PASSWORD_HASH}"',
+      '  ssh:',
+      '    authorized-keys:',
+      '__SSH_AUTHORIZED_KEYS__'
+    )
+    Set-Content -LiteralPath $script:template -Value ($templateLines -join "`n")
+  }
+
+  It 'renders placeholders and expands the ssh key list' {
+    $values = @{
+      LAB_AUTOINSTALL_USERNAME            = 'labadmin'
+      LAB_AUTOINSTALL_FULL_NAME           = 'Lab Administrator'
+      LAB_AUTOINSTALL_PASSWORD_HASH       = '$6$abc$def'
+      LAB_AUTOINSTALL_SSH_AUTHORIZED_KEYS = "ssh-ed25519 KEY1 a@b`nssh-ed25519 KEY2 c@d"
+    }
+
+    $out = Get-AutoinstallUserData -TemplatePath $script:template -Values $values -Hostname 'k8s-cp1'
+    $out | Should -Match 'hostname: k8s-cp1'
+    $out | Should -Match 'username: labadmin'
+    $out | Should -Match 'password: "\$6\$abc\$def"'
+    $out | Should -Match '      - ssh-ed25519 KEY1 a@b'
+    $out | Should -Match '      - ssh-ed25519 KEY2 c@d'
+    $out | Should -Not -Match '\$\{'
+    $out | Should -Not -Match '__SSH_AUTHORIZED_KEYS__'
+  }
+
+  It 'throws when a required value is missing' {
+    { Get-AutoinstallUserData -TemplatePath $script:template -Values @{ LAB_AUTOINSTALL_USERNAME = 'x' } -Hostname 'h' } |
+      Should -Throw '*Missing required*'
+  }
+}
+
+Describe 'ConvertTo-WslPath' {
+  It 'converts a Windows drive path to /mnt' {
+    ConvertTo-WslPath -Path 'E:\ISO\ubuntu.iso' | Should -Be '/mnt/e/ISO/ubuntu.iso'
+  }
+
+  It 'handles spaces and forward slashes' {
+    ConvertTo-WslPath -Path 'C:/a b/c' | Should -Be '/mnt/c/a b/c'
+  }
+
+  It 'throws on a non-rooted path' {
+    { ConvertTo-WslPath -Path 'relative\path' } | Should -Throw
+  }
+}
+
+Describe 'Add-AutoinstallKernelArgument' {
+  It 'injects autoinstall immediately after the kernel image' {
+    $grub = "menuentry x {`n    linux /casper/vmlinuz ---`n    initrd /casper/initrd`n}"
+    Add-AutoinstallKernelArgument -GrubConfiguration $grub | Should -Match 'linux /casper/vmlinuz autoinstall ---'
+  }
+
+  It 'is idempotent' {
+    Add-AutoinstallKernelArgument -GrubConfiguration 'linux /casper/vmlinuz autoinstall ---' |
+      Should -Be 'linux /casper/vmlinuz autoinstall ---'
+  }
+
+  It 'adds multiple arguments preserving order' {
+    Add-AutoinstallKernelArgument -GrubConfiguration 'linux /casper/vmlinuz ---' -KernelArguments @('autoinstall', 'ds=nocloud') |
+      Should -Match 'vmlinuz autoinstall ds=nocloud ---'
+  }
+
+  It 'throws when no kernel line is present' {
+    { Add-AutoinstallKernelArgument -GrubConfiguration 'set timeout=5' } | Should -Throw '*vmlinuz*'
+  }
+}
+
+Describe 'Update-GrubConfigFile' {
+  It 'rewrites grub.cfg in place with the autoinstall argument' {
+    InModuleScope HyperVLab {
+      $f = Join-Path -Path $TestDrive -ChildPath 'grub.cfg'
+      Set-Content -LiteralPath $f -Value 'linux /casper/vmlinuz ---'
+      Update-GrubConfigFile -Path $f -Confirm:$false | Out-Null
+      Get-Content -LiteralPath $f -Raw | Should -Match 'vmlinuz autoinstall ---'
+    }
+  }
+}
+
+Describe 'New-AutoinstallIso' {
+  It 'throws when the source ISO is missing' {
+    { New-AutoinstallIso -SourceIsoPath (Join-Path -Path $TestDrive -ChildPath 'missing.iso') `
+        -OutputIsoPath (Join-Path -Path $TestDrive -ChildPath 'out.iso') -Confirm:$false } |
+      Should -Throw '*source ISO not found*'
+  }
+
+  It 'reuses an existing output ISO without invoking an engine' {
+    $src = Join-Path -Path $TestDrive -ChildPath 'src.iso'
+    Set-Content -LiteralPath $src -Value 'stub'
+    $out = Join-Path -Path $TestDrive -ChildPath 'out.iso'
+    Set-Content -LiteralPath $out -Value 'stub'
+    New-AutoinstallIso -SourceIsoPath $src -OutputIsoPath $out -Confirm:$false | Should -Be $out
+  }
+}
+
+Describe 'New-CloudInitSeedStaging autoinstall content' {
+  It 'stages user-data supplied as content' {
+    $content = "#cloud-config`nautoinstall:`n  version: 1`n"
+    $dir = New-CloudInitSeedStaging -VmName 'k8s-cp1' -UserDataContent $content `
+      -OutputRootPath $TestDrive -Hostname 'k8s-cp1' -Confirm:$false
+    Get-Content (Join-Path $dir 'user-data') -Raw | Should -Match 'autoinstall:'
+  }
+
+  It 'rejects content that is not a #cloud-config document' {
+    { New-CloudInitSeedStaging -VmName 'x' -UserDataContent 'nope: true' -OutputRootPath $TestDrive -Confirm:$false } |
+      Should -Throw '*#cloud-config*'
+  }
+}
+
 Describe 'Get-OscdimgPath' {
   It 'returns either $null or an existing oscdimg.exe path' {
     $path = Get-OscdimgPath
@@ -348,6 +498,7 @@ Describe 'New-LabVirtualMachine leftover disk handling' -Skip:(-not (Get-Command
       Mock Get-VM { $null }
       Mock New-VM { }
       Mock Set-VMProcessor { }
+      Mock Set-VMFirmware { }
       Mock Add-VMNetworkAdapter { }
 
       $vhd = Join-Path -Path $TestDrive -ChildPath 'k8s-cp1.vhdx'
@@ -359,6 +510,7 @@ Describe 'New-LabVirtualMachine leftover disk handling' -Skip:(-not (Get-Command
       $result | Should -BeTrue
       Test-Path -LiteralPath $vhd | Should -BeFalse
       Should -Invoke New-VM -Times 1
+      Should -Invoke Set-VMFirmware -Times 1
     }
   }
 }
