@@ -1,0 +1,54 @@
+#cloud-config
+# Autoinstall user-data TEMPLATE for the Ubuntu Server live-server installer.
+#
+# This file contains ONLY placeholders. New-AutoinstallUserData fills them from
+# your .env at provisioning time and writes the rendered result into the seed
+# staging area (outside the repository). Never put real secrets in this file and
+# never commit the rendered output.
+#
+# Placeholders:
+#   ${LAB_AUTOINSTALL_FULL_NAME}      -> LAB_AUTOINSTALL_FULL_NAME
+#   ${LAB_AUTOINSTALL_USERNAME}       -> LAB_AUTOINSTALL_USERNAME
+#   ${LAB_AUTOINSTALL_PASSWORD_HASH}  -> LAB_AUTOINSTALL_PASSWORD_HASH (SHA-512 crypt hash)
+#   ${LAB_VM_HOSTNAME}                -> per-VM hostname supplied by the provisioner
+#   __SSH_AUTHORIZED_KEYS__           -> expanded YAML list from LAB_AUTOINSTALL_SSH_AUTHORIZED_KEYS
+autoinstall:
+  version: 1
+  locale: en_US.UTF-8
+  keyboard:
+    layout: us
+  identity:
+    realname: "${LAB_AUTOINSTALL_FULL_NAME}"
+    hostname: ${LAB_VM_HOSTNAME}
+    username: ${LAB_AUTOINSTALL_USERNAME}
+    password: "${LAB_AUTOINSTALL_PASSWORD_HASH}"
+  ssh:
+    install-server: true
+    allow-pw: false
+    authorized-keys:
+__SSH_AUTHORIZED_KEYS__
+  storage:
+    layout:
+      name: lvm
+  packages:
+    - python3
+    - python3-apt
+    - qemu-guest-agent
+  # Skip the subiquity self-update over the network to speed up unattended installs.
+  refresh-installer:
+    update: false
+  # Update scope during install: 'security' (default) is a good balance; 'all' is slower.
+  updates: security
+  # Reboot into the freshly installed system. Provisioning sets the VM boot order
+  # disk-first (installer second) so a finished install boots the disk, not the installer.
+  shutdown: reboot
+  # Make the automation account usable by Ansible immediately (enable ssh + passwordless sudo).
+  late-commands:
+    - curtin in-target --target=/target -- systemctl enable ssh
+    - curtin in-target --target=/target -- sh -c 'echo "${LAB_AUTOINSTALL_USERNAME} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-lab-automation'
+    - curtin in-target --target=/target -- chmod 0440 /etc/sudoers.d/90-lab-automation
+  user-data:
+    package_upgrade: false
+    runcmd:
+      - [systemctl, enable, --now, qemu-guest-agent]
+

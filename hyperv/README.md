@@ -136,7 +136,10 @@ Then install the OS one of two ways:
   `Get-AutoinstallUserData` renders them into `user-data`, which is written to the
   seed staging area **outside the repository** (default
   `<VhdRootPath>\cloud-init-seeds`, gitignored). Secrets are never written into
-  the repo or logged. Required `.env` keys:
+  the repo or logged. The template also sets `refresh-installer: {update: false}`
+  (skips the slow subiquity self-update), `updates: security`, `shutdown: reboot`,
+  and `late-commands` that enable SSH and passwordless sudo for the automation
+  user so Ansible can connect immediately. Required `.env` keys:
 
   | Key | Purpose |
   | --- | --- |
@@ -152,14 +155,19 @@ Then install the OS one of two ways:
   **Fully automatic (recommended): remaster the ISO with `-BuildAutoinstallIso`.**
   This injects the `autoinstall` kernel argument into the installer ISO's GRUB
   config and repacks a UEFI-bootable `…-autoinstall.iso`, so no GRUB keypress is
-  needed. It uses the **host WSL** installation and `xorriso` by default; pass
-  `-IsoEngine docker` to build in a container instead.
+  needed. Choose the engine with `-IsoEngine`:
+
+  | Engine | Tooling | Notes |
+  | --- | --- | --- |
+  | `wsl` (default) | Host WSL + `xorriso` | Most faithful (`-boot_image any replay` preserves boot + Rock Ridge/Joliet). |
+  | `docker` | Docker + `xorriso` | Same pipeline in a container; installs xorriso per run (slower). |
+  | `oscdimg` | 7-Zip + ADK `oscdimg` | **Native Windows, no WSL/Docker.** Boots/installs fine; no Rock Ridge (on-ISO symlinks not preserved). |
 
   ```powershell
-  # One-time in your WSL Ubuntu distro:
+  # wsl engine one-time:  wsl sudo apt-get update; wsl sudo apt-get install -y xorriso
   Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
     -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' `
-    -Autoinstall -BuildAutoinstallIso            # add -IsoEngine docker to use Docker
+    -Autoinstall -BuildAutoinstallIso -IsoEngine wsl   # or: -IsoEngine oscdimg (native) / docker
   ```
 
   The remastered ISO is **secret-free** (it only carries the kernel flag); the
@@ -169,12 +177,13 @@ Then install the OS one of two ways:
 
   ```powershell
   New-AutoinstallIso -SourceIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' `
-    -OutputIsoPath 'E:\ISO\ubuntu-24.04.3-autoinstall.iso'   # -Engine docker optional
+    -OutputIsoPath 'E:\ISO\ubuntu-24.04.3-autoinstall.iso' -Engine oscdimg   # wsl | docker | oscdimg
   ```
 
-  > `xorriso`'s `-boot_image any replay` preserves the original UEFI boot
-  > structure. `-Engine docker` installs `xorriso` in the container on each run
-  > (slower); WSL is the faster default.
+  > The `oscdimg` engine (7-Zip extract + `oscdimg -m -o -h -j1 -bootdata:…`) is
+  > the no-WSL path and reuses the same tested GRUB edit. It does not write Rock
+  > Ridge, so keep it in mind if you rely on offline apt from the ISO pool; the
+  > `wsl`/`docker` xorriso engines preserve the exact boot metadata.
 
 After the install finishes, detach the installer so the VM boots from disk:
 
@@ -182,6 +191,13 @@ After the install finishes, detach the installer so the VM boots from disk:
 Get-VMDvdDrive -VMName k8s-cp1 | Where-Object { $_.Path -like '*live-server*' } | Set-VMDvdDrive -Path $null
 Set-VMFirmware -VMName k8s-cp1 -FirstBootDevice (Get-VMHardDiskDrive -VMName k8s-cp1)
 ```
+
+> **Boot order:** for `-Autoinstall`, provisioning sets the boot order **disk
+> first, installer second** (`Add-LabInstallMedia -BootAfterDisk`). A blank disk
+> falls through to the installer; once the unattended install finishes and
+> `shutdown: reboot` runs, the now-bootable disk starts the installed OS — no
+> reinstall loop and no manual detach. The manual detach above is only needed for
+> the non-autoinstall (DVD-first) flow.
 
 ## Prerequisites
 
@@ -191,9 +207,10 @@ Set-VMFirmware -VMName k8s-cp1 -FirstBootDevice (Get-VMHardDiskDrive -VMName k8s
 - `powershell-yaml` module for YAML parsing.
 - Windows ADK "Deployment Tools" (`oscdimg.exe`) for cloud-init seed images
   (optional — seeding is skipped with a warning if it is missing).
-- For automatic autoinstall ISO remastering (`-BuildAutoinstallIso`): WSL with an
-  Ubuntu distribution and `xorriso` installed (`sudo apt-get install -y xorriso`),
-  or Docker (`-IsoEngine docker`).
+- For automatic autoinstall ISO remastering (`-BuildAutoinstallIso`), one of:
+  - WSL with an Ubuntu distribution and `xorriso` (`-IsoEngine wsl`, default), or
+  - Docker (`-IsoEngine docker`), or
+  - **7-Zip + the Windows ADK `oscdimg`** for a fully native build (`-IsoEngine oscdimg`).
 - Add your SSH public key to the cloud-init files before provisioning
   (see `cloud-init/README.md`).
 

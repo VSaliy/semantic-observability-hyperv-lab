@@ -285,6 +285,7 @@ function Get-CloudInitNetworkConfig {
   [void]$builder.AppendLine('ethernets:')
   [void]$builder.AppendLine(('  {0}:' -f $PrimaryInterface))
   [void]$builder.AppendLine('    dhcp4: true')
+  [void]$builder.AppendLine('    optional: true')
   [void]$builder.AppendLine(('  {0}:' -f $StaticInterface))
   [void]$builder.AppendLine('    dhcp4: false')
   [void]$builder.AppendLine('    addresses:')
@@ -555,6 +556,45 @@ function Add-AutoinstallKernelArgument {
   }
 
   return ($lines -join "`n")
+}
+
+function Resolve-EltoritoBootImage {
+  <#
+  .SYNOPSIS
+    Locates the BIOS and UEFI El Torito boot images extracted by 7-Zip from an ISO.
+  .DESCRIPTION
+    7-Zip exposes the boot images under a synthetic '[BOOT]' directory (for example
+    '1-Boot-NoEmul.img' for BIOS and '2-Boot-NoEmul.img' for UEFI). This resolves those images
+    by their numeric prefix, falling back to enumeration order, so oscdimg can rebuild a hybrid
+    bootable ISO.
+  .OUTPUTS
+    A hashtable with 'Bios' and 'Uefi' full paths (either may be $null).
+  #>
+  [CmdletBinding()]
+  [OutputType([hashtable])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$ExtractDirectory
+  )
+
+  $bootDir = Join-Path -Path $ExtractDirectory -ChildPath '[BOOT]'
+  if (-not (Test-Path -LiteralPath $bootDir)) {
+    throw "El Torito '[BOOT]' directory not found under: $ExtractDirectory"
+  }
+
+  $images = @(Get-ChildItem -LiteralPath $bootDir -Filter '*.img' -File | Sort-Object Name)
+  if ($images.Count -eq 0) {
+    throw "No boot images (*.img) found in: $bootDir"
+  }
+
+  $bios = $images | Where-Object { $_.Name -match '^1' } | Select-Object -First 1
+  $uefi = $images | Where-Object { $_.Name -match '^2' } | Select-Object -First 1
+  if (-not $bios -and $images.Count -ge 1) { $bios = $images[0] }
+  if (-not $uefi -and $images.Count -ge 2) { $uefi = $images[1] }
+
+  $biosPath = if ($bios) { $bios.FullName } else { $null }
+  $uefiPath = if ($uefi) { $uefi.FullName } else { $null }
+  return @{ Bios = $biosPath; Uefi = $uefiPath }
 }
 
 function Get-LabAnsibleInventory {
@@ -1038,8 +1078,10 @@ function Add-LabInstallMedia {
     Attaches an OS installer ISO to a virtual machine and optionally makes it the first boot device.
   .DESCRIPTION
     Idempotently attaches the installer ISO (for example the Ubuntu Server live-server image) as a
-    DVD drive. When -SetFirstBootDevice is used, the Generation 2 firmware boot order is set so the
-    VM boots the installer. Returns $true when a change was made.
+    DVD drive. -SetFirstBootDevice makes the installer the first boot device (manual installs).
+    -BootAfterDisk sets the boot order to the hard disk first and the installer DVD second, so a
+    blank disk falls through to the installer but a finished (autoinstall) install boots the disk
+    instead of re-running the installer. Returns $true when a change was made.
   #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
   [OutputType([bool])]
@@ -1050,7 +1092,9 @@ function Add-LabInstallMedia {
     [Parameter(Mandatory)]
     [string]$IsoPath,
 
-    [switch]$SetFirstBootDevice
+    [switch]$SetFirstBootDevice,
+
+    [switch]$BootAfterDisk
   )
 
   if (-not (Test-HyperVAvailable)) {
@@ -1075,7 +1119,16 @@ function Add-LabInstallMedia {
     Write-Verbose "Installer media '$IsoPath' is already attached to '$VmName'."
   }
 
-  if ($SetFirstBootDevice -and $drive) {
+  if ($drive -and $BootAfterDisk) {
+    if ($PSCmdlet.ShouldProcess($VmName, 'Set boot order to disk then installer DVD')) {
+      $bootOrder = @()
+      $bootOrder += @(Get-VMHardDiskDrive -VMName $VmName)
+      $bootOrder += $drive
+      Set-VMFirmware -VMName $VmName -BootOrder $bootOrder
+      $changed = $true
+    }
+  }
+  elseif ($drive -and $SetFirstBootDevice) {
     if ($PSCmdlet.ShouldProcess($VmName, 'Set installer DVD as first boot device')) {
       Set-VMFirmware -VMName $VmName -FirstBootDevice $drive
       $changed = $true
@@ -1091,13 +1144,19 @@ function New-AutoinstallIso {
     Builds an autoinstall-enabled Ubuntu Server ISO from a source ISO.
   .DESCRIPTION
     Injects the 'autoinstall' kernel argument into the ISO's GRUB configuration and repacks a
-    UEFI-bootable ISO with xorriso, preserving the original boot structure ('-boot_image any
-    replay'). No credentials are placed in the ISO; the per-VM cloud-init cidata seed supplies
-    the autoinstall data at install time.
+    UEFI-bootable ISO. No credentials are placed in the ISO; the per-VM cloud-init cidata seed
+    supplies the autoinstall data at install time.
 
-    The primary engine uses the host's WSL installation (xorriso must be installed in the
-    distribution). Pass -Engine docker to use a container instead (slower; installs xorriso on
-    each run). Idempotent: an existing output ISO is reused unless -Force is set.
+    Engines:
+      wsl     - (default) host WSL + xorriso; '-boot_image any replay' preserves the exact boot
+                structure and Rock Ridge/Joliet metadata (most faithful). Requires xorriso in WSL.
+      docker  - same xorriso pipeline inside a container (installs xorriso per run; slower).
+      oscdimg - fully native Windows: 7-Zip extracts the ISO, the GRUB configs are edited, and
+                oscdimg.exe (Windows ADK) repacks a hybrid BIOS+UEFI ISO. No WSL/Docker needed.
+                Note: oscdimg does not write Rock Ridge extensions, so on-ISO symlinks are not
+                preserved (boot/install still work; offline apt from the ISO pool may not).
+
+    Idempotent: an existing output ISO is reused unless -Force is set.
   .OUTPUTS
     The absolute path to the autoinstall ISO.
   #>
@@ -1112,12 +1171,14 @@ function New-AutoinstallIso {
 
     [string[]]$KernelArguments = @('autoinstall'),
 
-    [ValidateSet('wsl', 'docker')]
+    [ValidateSet('wsl', 'docker', 'oscdimg')]
     [string]$Engine = 'wsl',
 
     [string]$WslDistribution,
 
     [string]$DockerImage = 'ubuntu:24.04',
+
+    [string]$VolumeLabel = 'UBUNTU_AUTO',
 
     [switch]$Force
   )
@@ -1138,59 +1199,117 @@ function New-AutoinstallIso {
   $grubHostPath = Join-Path -Path $workDir -ChildPath 'grub.cfg'
 
   try {
-    if ($Engine -eq 'wsl') {
-      if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
-        throw 'wsl.exe is not available. Install WSL with an Ubuntu distribution or use -Engine docker.'
-      }
-      $distroArgs = @()
-      if (-not [string]::IsNullOrWhiteSpace($WslDistribution)) { $distroArgs = @('-d', $WslDistribution) }
+    switch ($Engine) {
+      'wsl' {
+        if (-not (Get-Command wsl -ErrorAction SilentlyContinue)) {
+          throw 'wsl.exe is not available. Install WSL with an Ubuntu distribution or use -Engine docker/oscdimg.'
+        }
+        $distroArgs = @()
+        if (-not [string]::IsNullOrWhiteSpace($WslDistribution)) { $distroArgs = @('-d', $WslDistribution) }
 
-      $wslIso = ConvertTo-WslPath -Path $SourceIsoPath
-      $wslOut = ConvertTo-WslPath -Path $OutputIsoPath
-      $wslGrub = ConvertTo-WslPath -Path $grubHostPath
+        $wslIso = ConvertTo-WslPath -Path $SourceIsoPath
+        $wslOut = ConvertTo-WslPath -Path $OutputIsoPath
+        $wslGrub = ConvertTo-WslPath -Path $grubHostPath
 
-      $extract = "set -e; command -v osirrox >/dev/null 2>&1 || { echo MISSING_XORRISO; exit 3; }; osirrox -indev '$wslIso' -extract /boot/grub/grub.cfg '$wslGrub'"
-      $extractOut = & wsl @distroArgs -- bash -lc $extract 2>&1
-      if ($LASTEXITCODE -eq 3 -or ($extractOut -match 'MISSING_XORRISO')) {
-        $install = 'sudo apt-get update && sudo apt-get install -y xorriso'
-        if ($distroArgs.Count -gt 0) { $install = "wsl -d $WslDistribution $install" } else { $install = "wsl $install" }
-        throw "xorriso is not installed in WSL. Install it with: $install"
-      }
-      if ($LASTEXITCODE -ne 0) {
-        throw "Failed to extract grub.cfg via WSL (exit $LASTEXITCODE): $extractOut"
-      }
+        $extract = "set -e; command -v osirrox >/dev/null 2>&1 || { echo MISSING_XORRISO; exit 3; }; osirrox -indev '$wslIso' -extract /boot/grub/grub.cfg '$wslGrub'"
+        $extractOut = & wsl @distroArgs -- bash -lc $extract 2>&1
+        if ($LASTEXITCODE -eq 3 -or ($extractOut -match 'MISSING_XORRISO')) {
+          $install = 'sudo apt-get update && sudo apt-get install -y xorriso'
+          if ($distroArgs.Count -gt 0) { $install = "wsl -d $WslDistribution $install" } else { $install = "wsl $install" }
+          throw "xorriso is not installed in WSL. Install it with: $install"
+        }
+        if ($LASTEXITCODE -ne 0) {
+          throw "Failed to extract grub.cfg via WSL (exit $LASTEXITCODE): $extractOut"
+        }
 
-      $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
+        $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
 
-      $repack = "set -e; xorriso -indev '$wslIso' -outdev '$wslOut' -boot_image any replay -map '$wslGrub' /boot/grub/grub.cfg -end"
-      $repackOut = & wsl @distroArgs -- bash -lc $repack 2>&1
-      if ($LASTEXITCODE -ne 0) {
-        throw "Failed to repack ISO via WSL (exit $LASTEXITCODE): $repackOut"
-      }
-    }
-    else {
-      if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        throw 'docker is not available. Install Docker or use -Engine wsl.'
-      }
-      $isoDir = (Split-Path -Path $SourceIsoPath -Parent) -replace '\\', '/'
-      $isoName = Split-Path -Path $SourceIsoPath -Leaf
-      $outDir = (Split-Path -Path $OutputIsoPath -Parent) -replace '\\', '/'
-      $outName = Split-Path -Path $OutputIsoPath -Leaf
-      $workDirFwd = $workDir -replace '\\', '/'
-      $aptPrefix = 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq xorriso >/dev/null 2>&1;'
-
-      $extract = "set -e; $aptPrefix osirrox -indev '/iso/$isoName' -extract /boot/grub/grub.cfg /work/grub.cfg"
-      $extractOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" $DockerImage bash -lc $extract 2>&1
-      if ($LASTEXITCODE -ne 0) {
-        throw "Failed to extract grub.cfg via Docker (exit $LASTEXITCODE): $extractOut"
+        $repack = "set -e; xorriso -indev '$wslIso' -outdev '$wslOut' -boot_image any replay -map '$wslGrub' /boot/grub/grub.cfg -end"
+        $repackOut = & wsl @distroArgs -- bash -lc $repack 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "Failed to repack ISO via WSL (exit $LASTEXITCODE): $repackOut"
+        }
       }
 
-      $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
+      'docker' {
+        if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+          throw 'docker is not available. Install Docker or use -Engine wsl/oscdimg.'
+        }
+        $isoDir = (Split-Path -Path $SourceIsoPath -Parent) -replace '\\', '/'
+        $isoName = Split-Path -Path $SourceIsoPath -Leaf
+        $outDir = (Split-Path -Path $OutputIsoPath -Parent) -replace '\\', '/'
+        $outName = Split-Path -Path $OutputIsoPath -Leaf
+        $workDirFwd = $workDir -replace '\\', '/'
+        $aptPrefix = 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq xorriso >/dev/null 2>&1;'
 
-      $repack = "set -e; $aptPrefix xorriso -indev '/iso/$isoName' -outdev '/out/$outName' -boot_image any replay -map /work/grub.cfg /boot/grub/grub.cfg -end"
-      $repackOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" -v "${outDir}:/out" $DockerImage bash -lc $repack 2>&1
-      if ($LASTEXITCODE -ne 0) {
-        throw "Failed to repack ISO via Docker (exit $LASTEXITCODE): $repackOut"
+        $extract = "set -e; $aptPrefix osirrox -indev '/iso/$isoName' -extract /boot/grub/grub.cfg /work/grub.cfg"
+        $extractOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" $DockerImage bash -lc $extract 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "Failed to extract grub.cfg via Docker (exit $LASTEXITCODE): $extractOut"
+        }
+
+        $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
+
+        $repack = "set -e; $aptPrefix xorriso -indev '/iso/$isoName' -outdev '/out/$outName' -boot_image any replay -map /work/grub.cfg /boot/grub/grub.cfg -end"
+        $repackOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" -v "${outDir}:/out" $DockerImage bash -lc $repack 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "Failed to repack ISO via Docker (exit $LASTEXITCODE): $repackOut"
+        }
+      }
+
+      'oscdimg' {
+        $sevenZip = Get-Command 7z.exe -ErrorAction SilentlyContinue
+        if (-not $sevenZip) { $sevenZip = Get-Command 7z -ErrorAction SilentlyContinue }
+        if (-not $sevenZip) {
+          throw '7-Zip (7z) was not found. Install 7-Zip (or add it to PATH), or use -Engine wsl/docker.'
+        }
+        $oscdimgPath = Get-OscdimgPath
+        if ([string]::IsNullOrWhiteSpace($oscdimgPath)) {
+          throw 'oscdimg.exe was not found. Install the Windows ADK Deployment Tools, or use -Engine wsl/docker.'
+        }
+
+        $extractDir = Join-Path -Path $workDir -ChildPath 'extract'
+        New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
+
+        $extractOut = & $sevenZip.Source x $SourceIsoPath "-o$extractDir" -y 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "7-Zip extraction failed (exit $LASTEXITCODE): $extractOut"
+        }
+
+        $grubCfg = Join-Path -Path $extractDir -ChildPath 'boot\grub\grub.cfg'
+        if (-not (Test-Path -LiteralPath $grubCfg)) {
+          throw "grub.cfg not found after extraction: $grubCfg"
+        }
+        $null = Update-GrubConfigFile -Path $grubCfg -KernelArguments $KernelArguments
+
+        $loopbackCfg = Join-Path -Path $extractDir -ChildPath 'boot\grub\loopback.cfg'
+        if (Test-Path -LiteralPath $loopbackCfg) {
+          try { $null = Update-GrubConfigFile -Path $loopbackCfg -KernelArguments $KernelArguments }
+          catch { Write-Warning "Skipped loopback.cfg (no kernel line?): $($_.Exception.Message)" }
+        }
+
+        $boot = Resolve-EltoritoBootImage -ExtractDirectory $extractDir
+        if ($boot.Bios -and $boot.Uefi) {
+          $bootData = "-bootdata:2#p0,e,b$($boot.Bios)#pEF,e,b$($boot.Uefi)"
+        }
+        elseif ($boot.Uefi) {
+          $bootData = "-bootdata:1#pEF,e,b$($boot.Uefi)"
+        }
+        elseif ($boot.Bios) {
+          $bootData = "-bootdata:1#p0,e,b$($boot.Bios)"
+        }
+        else {
+          throw 'No El Torito boot images were found in the extracted [BOOT] directory.'
+        }
+
+        if (Test-Path -LiteralPath $OutputIsoPath) {
+          Remove-Item -LiteralPath $OutputIsoPath -Force
+        }
+
+        $oscdimgOut = & $oscdimgPath -m -o -h -j1 $bootData "-l$VolumeLabel" $extractDir $OutputIsoPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          throw "oscdimg.exe failed (exit $LASTEXITCODE): $oscdimgOut"
+        }
       }
     }
   }
@@ -1275,7 +1394,7 @@ function Invoke-LabProvisioning {
 
     [switch]$BuildAutoinstallIso,
 
-    [ValidateSet('wsl', 'docker')]
+    [ValidateSet('wsl', 'docker', 'oscdimg')]
     [string]$IsoEngine = 'wsl',
 
     [switch]$Rebuild
@@ -1404,7 +1523,8 @@ function Invoke-LabProvisioning {
     }
 
     if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
-      Add-LabInstallMedia -VmName $vm.Name -IsoPath $InstallIsoPath -SetFirstBootDevice -Confirm:$false | Out-Null
+      Add-LabInstallMedia -VmName $vm.Name -IsoPath $InstallIsoPath `
+        -SetFirstBootDevice:(-not $Autoinstall) -BootAfterDisk:$Autoinstall -Confirm:$false | Out-Null
     }
   }
 }
@@ -1449,6 +1569,7 @@ Export-ModuleMember -Function `
   Get-AutoinstallUserData, `
   ConvertTo-WslPath, `
   Add-AutoinstallKernelArgument, `
+  Resolve-EltoritoBootImage, `
   New-AutoinstallIso, `
   Get-LabAnsibleInventory, `
   Test-HyperVAvailable, `

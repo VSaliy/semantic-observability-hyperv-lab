@@ -38,7 +38,7 @@ param(
 
   [switch]$BuildAutoinstallIso,
 
-  [ValidateSet('wsl', 'docker')]
+  [ValidateSet('wsl', 'docker', 'oscdimg')]
   [string]$IsoEngine = 'wsl',
 
   [switch]$Rebuild

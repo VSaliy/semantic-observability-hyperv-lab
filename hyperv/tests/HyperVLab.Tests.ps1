@@ -163,6 +163,7 @@ Describe 'Get-CloudInitNetworkConfig' {
     $config = Get-CloudInitNetworkConfig -StaticIpCidr '10.50.0.11/24' -DnsServers @('1.1.1.1', '9.9.9.9')
     $config | Should -Match 'version: 2'
     $config | Should -Match 'eth0:\s*\n\s*dhcp4: true'
+    $config | Should -Match 'optional: true'
     $config | Should -Match '- 10.50.0.11/24'
     $config | Should -Match '- 1.1.1.1'
   }
@@ -430,6 +431,25 @@ Describe 'New-AutoinstallIso' {
     $out = Join-Path -Path $TestDrive -ChildPath 'out.iso'
     Set-Content -LiteralPath $out -Value 'stub'
     New-AutoinstallIso -SourceIsoPath $src -OutputIsoPath $out -Confirm:$false | Should -Be $out
+  }
+}
+
+Describe 'Resolve-EltoritoBootImage' {
+  It 'locates BIOS and UEFI images by 7-Zip numeric prefix' {
+    $extract = Join-Path -Path $TestDrive -ChildPath 'extract'
+    $bootDir = Join-Path -Path $extract -ChildPath '[BOOT]'
+    [System.IO.Directory]::CreateDirectory($bootDir) | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path -Path $bootDir -ChildPath '1-Boot-NoEmul.img'), 'bios')
+    [System.IO.File]::WriteAllText((Join-Path -Path $bootDir -ChildPath '2-Boot-NoEmul.img'), 'uefi')
+
+    $result = Resolve-EltoritoBootImage -ExtractDirectory $extract
+    $result.Bios | Should -Match '1-Boot-NoEmul\.img$'
+    $result.Uefi | Should -Match '2-Boot-NoEmul\.img$'
+  }
+
+  It 'throws when the [BOOT] directory is missing' {
+    { Resolve-EltoritoBootImage -ExtractDirectory (Join-Path -Path $TestDrive -ChildPath 'no-boot') } |
+      Should -Throw '*directory not found*'
   }
 }
 
