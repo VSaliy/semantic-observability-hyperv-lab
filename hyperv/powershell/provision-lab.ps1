@@ -7,20 +7,30 @@
   switches and virtual machines it declares. Requires an elevated PowerShell session
   on a Hyper-V enabled host. Supports -WhatIf and -Verbose through the module.
 
+  Use -Rebuild for a clean rebuild: existing lab VMs and their disks are removed and
+  recreated. Virtual switches (and any NAT) are always left in place.
+
 .EXAMPLE
   ./provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' -ExternalNetAdapterName 'Ethernet'
+
+.EXAMPLE
+  ./provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' -CloudInitSourcePath ../cloud-init -Rebuild
 
 .NOTES
   For a dry run, import HyperVLab.psm1 and call Invoke-LabProvisioning with -WhatIf.
 #>
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
   [string]$ConfigPath = (Join-Path -Path $PSScriptRoot -ChildPath '../config/lab-config.yaml'),
 
   [Parameter(Mandatory)]
   [string]$VhdRootPath,
 
-  [string]$ExternalNetAdapterName
+  [string]$ExternalNetAdapterName,
+
+  [string]$CloudInitSourcePath,
+
+  [switch]$Rebuild
 )
 
 Set-StrictMode -Version Latest
@@ -39,8 +49,15 @@ if (-not (Test-HyperVAvailable)) {
 Write-Verbose "Loading lab configuration from $ConfigPath"
 $configuration = Import-LabConfiguration -Path $ConfigPath
 
-Invoke-LabProvisioning `
-  -Configuration $configuration `
-  -VhdRootPath $VhdRootPath `
-  -ExternalNetAdapterName $ExternalNetAdapterName
+$provisioningParameters = @{
+  Configuration          = $configuration
+  VhdRootPath            = $VhdRootPath
+  ExternalNetAdapterName = $ExternalNetAdapterName
+  Rebuild                = $Rebuild
+}
+if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath)) {
+  $provisioningParameters['CloudInitSourcePath'] = $CloudInitSourcePath
+}
+
+Invoke-LabProvisioning @provisioningParameters
 

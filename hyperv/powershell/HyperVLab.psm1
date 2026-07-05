@@ -487,6 +487,10 @@ function New-LabVirtualMachine {
   <#
   .SYNOPSIS
     Creates a Generation 2 lab virtual machine if it does not already exist (idempotent).
+  .DESCRIPTION
+    By default the VM is only created when it does not already exist. A leftover virtual disk
+    at the target path (for example from a VM removed without its disk) stops creation with a
+    clear error. Use -Force to delete such a leftover disk and recreate the VM cleanly.
   #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
   [OutputType([bool])]
@@ -509,7 +513,9 @@ function New-LabVirtualMachine {
     [Parameter(Mandatory)]
     [string]$VhdPath,
 
-    [int]$Generation = 2
+    [int]$Generation = 2,
+
+    [switch]$Force
   )
 
   if (-not (Test-HyperVAvailable)) {
@@ -523,6 +529,21 @@ function New-LabVirtualMachine {
 
   if (-not $PSCmdlet.ShouldProcess($Name, 'Create lab virtual machine')) {
     return $false
+  }
+
+  if (Test-Path -LiteralPath $VhdPath) {
+    if ($Force) {
+      Write-Verbose "Removing leftover virtual disk '$VhdPath' before recreating VM '$Name'."
+      Remove-Item -LiteralPath $VhdPath -Force
+    }
+    else {
+      throw "A virtual disk already exists at '$VhdPath'. Remove it, or re-run with -Force (Invoke-LabProvisioning -Rebuild), before creating VM '$Name'."
+    }
+  }
+
+  $vhdDirectory = Split-Path -Path $VhdPath -Parent
+  if ($vhdDirectory -and -not (Test-Path -LiteralPath $vhdDirectory)) {
+    New-Item -ItemType Directory -Path $vhdDirectory -Force | Out-Null
   }
 
   $primarySwitch = $SwitchNames | Select-Object -First 1
@@ -760,6 +781,10 @@ function New-CloudInitSeedImage {
     New-Item -ItemType Directory -Path $isoDirectory -Force | Out-Null
   }
 
+  if (Test-Path -LiteralPath $OutputIsoPath) {
+    Remove-Item -LiteralPath $OutputIsoPath -Force
+  }
+
   & $OscdimgPath '-lcidata' '-j1' '-m' '-o' $SeedDirectory $OutputIsoPath | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "oscdimg.exe failed with exit code $LASTEXITCODE while building $OutputIsoPath."
@@ -813,6 +838,8 @@ function Invoke-LabProvisioning {
     Validates and normalizes the configuration, then creates each virtual switch and
     virtual machine idempotently. When -CloudInitSourcePath is supplied, a cloud-init NoCloud
     seed image is built and attached to every VM that declares a cloudInit user-data file.
+    Use -Rebuild for a clean rebuild: existing lab VMs and their disks are removed and
+    recreated. Virtual switches (and any NAT) are always left in place.
     Supports -WhatIf and -Verbose.
   #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
@@ -829,7 +856,9 @@ function Invoke-LabProvisioning {
 
     [string]$CloudInitStagingPath,
 
-    [string[]]$DnsServers = @('1.1.1.1', '9.9.9.9')
+    [string[]]$DnsServers = @('1.1.1.1', '9.9.9.9'),
+
+    [switch]$Rebuild
   )
 
   if (-not (Test-HyperVAvailable)) {
@@ -869,8 +898,17 @@ function Invoke-LabProvisioning {
     }
   }
 
+  if (-not (Test-Path -LiteralPath $VhdRootPath)) {
+    New-Item -ItemType Directory -Path $VhdRootPath -Force | Out-Null
+  }
+
   foreach ($vm in $plan.Vms) {
     $vhdPath = Join-Path -Path $VhdRootPath -ChildPath ('{0}.vhdx' -f $vm.Name)
+
+    if ($Rebuild) {
+      Remove-LabVirtualMachine -Name $vm.Name -RemoveDisks -Confirm:$false | Out-Null
+    }
+
     New-LabVirtualMachine -Name $vm.Name `
       -MemoryStartupBytes $vm.MemoryStartupBytes `
       -CpuCount $vm.CpuCount `
@@ -878,6 +916,7 @@ function Invoke-LabProvisioning {
       -SwitchNames $vm.Networks `
       -VhdPath $vhdPath `
       -Generation $vm.Generation `
+      -Force:$Rebuild `
       -Confirm:$false | Out-Null
 
     if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {

@@ -60,6 +60,35 @@ Invoke-LabProvisioning `
 `provision-lab.ps1` wraps the same flow with prerequisite checks. Requires
 `ConvertFrom-Yaml` (the `powershell-yaml` module) to load YAML configuration.
 
+## Re-running, clean rebuild, and teardown
+
+Provisioning is **idempotent**: existing switches and VMs are detected by name
+and skipped, so a plain re-run only fills in what is missing. You do not need to
+remove anything between normal runs, and virtual switches (and any NAT) are never
+deleted by the tooling.
+
+For a **clean rebuild** of the VMs (for example after changing CPU, memory, or
+disk sizes), use `-Rebuild`. It removes each lab VM and its disk, then recreates
+it. Switches and NAT are left in place:
+
+```powershell
+Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' -CloudInitSourcePath ./hyperv/cloud-init -Rebuild
+# or via the wrapper:
+./hyperv/powershell/provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' -CloudInitSourcePath ../cloud-init -Rebuild
+```
+
+To tear the lab down without recreating it:
+
+```powershell
+Remove-LabEnvironment -Configuration $config              # remove VMs, keep VHDX disks
+Remove-LabEnvironment -Configuration $config -RemoveDisks  # remove VMs and delete VHDX disks
+Remove-LabVirtualMachine -Name k8s-cp1 -RemoveDisks        # single VM + its disk
+```
+
+> A leftover `*.vhdx` (from a VM removed without `-RemoveDisks`) blocks
+> recreation. `New-LabVirtualMachine` reports this clearly; `-Rebuild` / `-Force`
+> deletes the stale disk automatically.
+
 ## Prerequisites
 
 - Windows 11 Pro with the Hyper-V role enabled.

@@ -323,3 +323,43 @@ Describe 'New-CloudInitSeedImage' {
   }
 }
 
+Describe 'New-LabVirtualMachine leftover disk handling' -Skip:(-not (Get-Command New-VM -ErrorAction SilentlyContinue)) {
+  It 'throws an actionable error when a disk already exists and -Force is not set' {
+    InModuleScope HyperVLab {
+      Mock Test-HyperVAvailable { $true }
+      Mock Get-VM { $null }
+      Mock New-VM { }
+      Mock Set-VMProcessor { }
+      Mock Add-VMNetworkAdapter { }
+
+      $vhd = Join-Path -Path $TestDrive -ChildPath 'obs-admin.vhdx'
+      Set-Content -LiteralPath $vhd -Value 'stub'
+
+      { New-LabVirtualMachine -Name 'obs-admin' -MemoryStartupBytes 4294967296 -CpuCount 2 `
+          -DiskSizeBytes 64424509440 -SwitchNames @('External-Lab') -VhdPath $vhd -Confirm:$false } |
+        Should -Throw '*already exists*'
+      Should -Not -Invoke New-VM
+    }
+  }
+
+  It 'removes the leftover disk and recreates the VM when -Force is set' {
+    InModuleScope HyperVLab {
+      Mock Test-HyperVAvailable { $true }
+      Mock Get-VM { $null }
+      Mock New-VM { }
+      Mock Set-VMProcessor { }
+      Mock Add-VMNetworkAdapter { }
+
+      $vhd = Join-Path -Path $TestDrive -ChildPath 'k8s-cp1.vhdx'
+      Set-Content -LiteralPath $vhd -Value 'stub'
+
+      $result = New-LabVirtualMachine -Name 'k8s-cp1' -MemoryStartupBytes 6442450944 -CpuCount 4 `
+        -DiskSizeBytes 85899345920 -SwitchNames @('External-Lab') -VhdPath $vhd -Force -Confirm:$false
+
+      $result | Should -BeTrue
+      Test-Path -LiteralPath $vhd | Should -BeFalse
+      Should -Invoke New-VM -Times 1
+    }
+  }
+}
+
