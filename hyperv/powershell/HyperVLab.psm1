@@ -465,10 +465,19 @@ function New-LabVirtualSwitch {
       if ([string]::IsNullOrWhiteSpace($NetAdapterName)) {
         throw "External switch '$Name' requires -NetAdapterName."
       }
-      New-VMSwitch -Name $Name -NetAdapterName $NetAdapterName -AllowManagementOS $true | Out-Null
+      $conflict = Get-VMSwitch -SwitchType External -ErrorAction SilentlyContinue | Where-Object {
+        $_.NetAdapterInterfaceDescription -and
+        (Get-NetAdapter -InterfaceDescription $_.NetAdapterInterfaceDescription -ErrorAction SilentlyContinue).Name -eq $NetAdapterName
+      }
+      if ($conflict) {
+        throw ("Network adapter '{0}' is already bound to external switch '{1}'. " -f $NetAdapterName, $conflict.Name) +
+        ("Reuse it by setting the external network 'name' to '{0}' in lab-config.yaml (or rename that switch to '{1}'), " -f $conflict.Name, $Name) +
+        'choose a different adapter, or remove the existing switch.'
+      }
+      New-VMSwitch -Name $Name -NetAdapterName $NetAdapterName -AllowManagementOS $true -ErrorAction Stop | Out-Null
     }
-    'Internal' { New-VMSwitch -Name $Name -SwitchType Internal | Out-Null }
-    'Private' { New-VMSwitch -Name $Name -SwitchType Private | Out-Null }
+    'Internal' { New-VMSwitch -Name $Name -SwitchType Internal -ErrorAction Stop | Out-Null }
+    'Private' { New-VMSwitch -Name $Name -SwitchType Private -ErrorAction Stop | Out-Null }
   }
 
   return $true
@@ -655,16 +664,58 @@ function Remove-LabVirtualMachine {
   return $true
 }
 
+function Get-OscdimgPath {
+  <#
+  .SYNOPSIS
+    Resolves the full path to oscdimg.exe from PATH or well-known Windows ADK locations.
+  .DESCRIPTION
+    oscdimg.exe ships with the Windows ADK "Deployment Tools" and is usually not added to
+    PATH. This helper checks PATH first, then the standard ADK install directories under
+    Program Files, preferring the amd64 build.
+  .OUTPUTS
+    The full path to oscdimg.exe, or $null when it cannot be found.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param()
+
+  $command = Get-Command -Name 'oscdimg.exe' -ErrorAction SilentlyContinue
+  if ($command) {
+    return $command.Source
+  }
+
+  $roots = @()
+  if ($env:ProgramFiles) { $roots += $env:ProgramFiles }
+  if (${env:ProgramFiles(x86)}) { $roots += ${env:ProgramFiles(x86)} }
+
+  foreach ($root in $roots) {
+    $deploymentTools = Join-Path -Path $root -ChildPath 'Windows Kits\10\Assessment and Deployment Kit\Deployment Tools'
+    if (-not (Test-Path -LiteralPath $deploymentTools)) {
+      continue
+    }
+    $candidates = Get-ChildItem -Path $deploymentTools -Recurse -Filter 'oscdimg.exe' -ErrorAction SilentlyContinue
+    $preferred = $candidates | Where-Object { $_.FullName -match '\\amd64\\' } | Select-Object -First 1
+    if ($preferred) {
+      return $preferred.FullName
+    }
+    if ($candidates) {
+      return ($candidates | Select-Object -First 1).FullName
+    }
+  }
+
+  return $null
+}
+
 function Test-OscdimgAvailable {
   <#
   .SYNOPSIS
-    Indicates whether the oscdimg.exe image builder (Windows ADK) is available on this host.
+    Indicates whether oscdimg.exe (Windows ADK) can be located on this host.
   #>
   [CmdletBinding()]
   [OutputType([bool])]
   param()
 
-  return [bool](Get-Command -Name 'oscdimg.exe' -ErrorAction SilentlyContinue)
+  return [bool](Get-OscdimgPath)
 }
 
 function New-CloudInitSeedImage {
@@ -684,14 +735,20 @@ function New-CloudInitSeedImage {
     [string]$SeedDirectory,
 
     [Parameter(Mandatory)]
-    [string]$OutputIsoPath
+    [string]$OutputIsoPath,
+
+    [string]$OscdimgPath
   )
 
   if (-not (Test-Path -LiteralPath $SeedDirectory)) {
     throw "cloud-init seed directory not found: $SeedDirectory"
   }
-  if (-not (Test-OscdimgAvailable)) {
-    throw 'oscdimg.exe is not available. Install the Windows ADK (Deployment Tools) to build cloud-init seed images.'
+
+  if ([string]::IsNullOrWhiteSpace($OscdimgPath)) {
+    $OscdimgPath = Get-OscdimgPath
+  }
+  if ([string]::IsNullOrWhiteSpace($OscdimgPath) -or -not (Test-Path -LiteralPath $OscdimgPath)) {
+    throw 'oscdimg.exe could not be located. Install the Windows ADK (Deployment Tools) or pass -OscdimgPath.'
   }
 
   if (-not $PSCmdlet.ShouldProcess($OutputIsoPath, 'Build cloud-init NoCloud seed image')) {
@@ -703,7 +760,7 @@ function New-CloudInitSeedImage {
     New-Item -ItemType Directory -Path $isoDirectory -Force | Out-Null
   }
 
-  & oscdimg.exe '-lcidata' '-j1' '-m' '-o' $SeedDirectory $OutputIsoPath | Out-Null
+  & $OscdimgPath '-lcidata' '-j1' '-m' '-o' $SeedDirectory $OutputIsoPath | Out-Null
   if ($LASTEXITCODE -ne 0) {
     throw "oscdimg.exe failed with exit code $LASTEXITCODE while building $OutputIsoPath."
   }
@@ -883,6 +940,7 @@ Export-ModuleMember -Function `
   Get-LabAnsibleInventory, `
   Test-HyperVAvailable, `
   Test-OscdimgAvailable, `
+  Get-OscdimgPath, `
   New-CloudInitSeedImage, `
   Add-LabCloudInitDisk, `
   New-LabVirtualSwitch, `

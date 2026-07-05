@@ -297,10 +297,24 @@ Describe 'Test-OscdimgAvailable' {
   }
 }
 
+Describe 'Get-OscdimgPath' {
+  It 'returns either $null or an existing oscdimg.exe path' {
+    $path = Get-OscdimgPath
+    if ($null -ne $path) {
+      $path | Should -Match 'oscdimg\.exe$'
+      Test-Path -LiteralPath $path | Should -BeTrue
+    }
+  }
+
+  It 'agrees with Test-OscdimgAvailable' {
+    [bool](Get-OscdimgPath) | Should -Be (Test-OscdimgAvailable)
+  }
+}
+
 Describe 'New-CloudInitSeedImage' {
   It 'throws an actionable error when oscdimg is unavailable' {
     InModuleScope HyperVLab {
-      Mock Test-OscdimgAvailable { $false }
+      Mock Get-OscdimgPath { $null }
       $seed = Join-Path -Path $TestDrive -ChildPath 'seed'
       New-Item -ItemType Directory -Path $seed -Force | Out-Null
       { New-CloudInitSeedImage -SeedDirectory $seed -OutputIsoPath (Join-Path $TestDrive 'out.iso') -Confirm:$false } |
