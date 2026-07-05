@@ -29,7 +29,7 @@ The implementation does **not** use an LLM to invent causes. Search results rema
 | --- | --- | --- |
 | 0 Foundation | Implemented | Repository structure, ADRs, docs, validation scripts, CI skeleton, version catalog. |
 | 1 Runnable vertical slice | Implemented | Kafka, OpenSearch, deterministic embedding service, semantic indexer, query API, seed events, evaluation dataset, tenant isolation tests. |
-| 2 Hyper-V and Linux automation | Foundation only | PowerShell module shape, cloud-init examples, Ansible baseline, and milestone notes. |
+| 2 Hyper-V and Linux automation | Implemented | Hyper-V VM lifecycle module, cloud-init NoCloud seeding, and idempotent Ansible roles (baseline, containerd, kubeadm prerequisites, admin tools, time-sync validation). |
 | 3 Kubernetes platform | Foundation only | Namespaces, quotas, policies, storage, and Terraform tenant module. |
 | 4 Core observability | Planned | OTel, Prometheus, Alertmanager, Grafana, Loki, Tempo, MinIO. |
 
@@ -89,10 +89,12 @@ curl -s http://localhost:8080/api/v1/search \
 
 ## Hyper-V bootstrap path
 
-1. Validate Hyper-V host prerequisites with `hyperv/powershell/HyperVLab.psm1`.
-2. Load VM configuration from `hyperv/config/lab-config.yaml`.
-3. Use Ansible and cloud-init examples to prepare Linux guests.
+1. Validate Hyper-V host prerequisites and load configuration with `hyperv/powershell/HyperVLab.psm1`.
+2. Provision switches and VMs from `hyperv/config/lab-config.yaml` via `Invoke-LabProvisioning`, attaching cloud-init NoCloud seeds.
+3. Apply the Linux baseline, containerd, and kubeadm prerequisites with the Ansible roles under `ansible/`.
 4. Progressively move from Docker Compose to kubeadm-based deployment in later milestones.
+
+See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.md) for the full Milestone 2 workflow.
 
 ## Security and tenant isolation
 
@@ -112,6 +114,16 @@ make validate
 make evaluate-search
 ```
 
+Milestone 2 automation is validated separately:
+
+```bash
+# Hyper-V PowerShell module (pure functions, Hyper-V mocked)
+pwsh -c "Invoke-Pester -Path ./hyperv/tests"
+
+# Ansible roles and playbooks
+cd ansible && ansible-lint playbooks/site.yml playbooks/validate.yml
+```
+
 ## Contribution guide
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -120,12 +132,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Java 21 is required locally for Maven builds; the default runner JDK may be older.
 - The Milestone 1 embedding service is deterministic and local, not semantically rich.
-- Hyper-V, kubeadm, Keycloak, and the full observability stack are documented foundations, not yet fully deployed.
+- Milestone 2 automation (Hyper-V module, cloud-init, Ansible roles) is implemented and unit-tested, but a running Hyper-V host is required to provision guests; kubeadm, Keycloak, and the full observability stack remain later milestones.
 - Search ranking is deliberately transparent and heuristic, not production-tuned.
 
 ## Roadmap
 
-- Milestone 2: Hyper-V VM lifecycle automation, cloud-init, and Ansible execution path.
 - Milestone 3: kubeadm cluster automation, Cilium, MetalLB, ingress, certificates, storage, and tenant Terraform application.
 - Milestone 4: full core observability stack and Kafka-connected collectors.
 - Later: network observability, ITSM integrations, Keycloak, Istio, ClickHouse, deployment health gates, cost controls, and capstone incident workflows.

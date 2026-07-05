@@ -1,17 +1,70 @@
+---
+# Declarative definition of the Hyper-V observability lab.
+# Consumed by hyperv/powershell/provision-lab.ps1 through Import-LabConfiguration
+# and by Get-LabAnsibleInventory to keep host addressing in a single place.
+#
+# Addressing here matches ansible/inventories/lab/hosts.yml:
+#   obs-admin    10.50.0.10
+#   k8s-cp1      10.50.0.11
+#   k8s-worker1  10.50.0.12
+#   k8s-worker2  10.50.0.13
+
 networks:
   external:
     name: External-Lab
     type: External
+    # Physical adapter on the host that provides internet access.
+    # Override at provisioning time with -ExternalNetAdapterName if it differs.
+    adapterName: Ethernet
   internal:
     name: Observability-Internal
     type: Internal
     subnet: 10.50.0.0/24
+    gateway: 10.50.0.1
+
+# DNS servers handed to guests through cloud-init network-config.
+dnsServers:
+  - 1.1.1.1
+  - 9.9.9.9
 
 vms:
   obs-admin:
+    role: admin
     cpu: 2
     memoryStartupBytes: 4GB
     diskSizeBytes: 60GB
     networks:
       - External-Lab
       - Observability-Internal
+    ipAddress: 10.50.0.10/24
+    cloudInit: obs-admin.yaml
+  k8s-cp1:
+    role: kubernetes
+    cpu: 4
+    memoryStartupBytes: 6GB
+    diskSizeBytes: 80GB
+    networks:
+      - External-Lab
+      - Observability-Internal
+    ipAddress: 10.50.0.11/24
+    cloudInit: k8s-node.yaml
+  k8s-worker1:
+    role: kubernetes
+    cpu: 4
+    memoryStartupBytes: 6GB
+    diskSizeBytes: 80GB
+    networks:
+      - External-Lab
+      - Observability-Internal
+    ipAddress: 10.50.0.12/24
+    cloudInit: k8s-node.yaml
+  k8s-worker2:
+    role: kubernetes
+    cpu: 4
+    memoryStartupBytes: 6GB
+    diskSizeBytes: 80GB
+    networks:
+      - External-Lab
+      - Observability-Internal
+    ipAddress: 10.50.0.13/24
+    cloudInit: k8s-node.yaml

@@ -1,0 +1,10 @@
+---
+# Settings scoped to the Kubernetes node group.
+# Consumed by the containerd and kubernetes-prerequisites roles, and reserved
+# for the Milestone 3 kubeadm bootstrap.
+
+# Pod network CIDR reserved for the CNI (Cilium) in Milestone 3.
+kubernetes_pod_network_cidr: "10.244.0.0/16"
+
+# Control-plane endpoint (matches k8s-cp1 in the lab inventory).
+kubernetes_control_plane_host: k8s-cp1

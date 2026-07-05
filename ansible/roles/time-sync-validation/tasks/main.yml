@@ -1,4 +1,27 @@
 ---
-- name: Include milestone note for time-sync-validation
-  ansible.builtin.debug:
-    msg: "Role time-sync-validation provides Milestone 2 automation foundation and is intentionally idempotent."
+- name: Validate time synchronization
+  when: time_sync_validation_enabled | bool
+  block:
+    - name: Query the NTP synchronization state
+      ansible.builtin.command: timedatectl show --property=NTPSynchronized --value
+      register: ntp_sync
+      changed_when: false
+      check_mode: false
+
+    - name: Assert the system clock is synchronized
+      ansible.builtin.assert:
+        that:
+          - (ntp_sync.stdout | trim) == 'yes'
+        fail_msg: "System clock is not synchronized (NTPSynchronized={{ ntp_sync.stdout | trim }})."
+        success_msg: "System clock is synchronized."
+
+    - name: Collect service facts
+      ansible.builtin.service_facts:
+
+    - name: Assert the time synchronization service is running
+      ansible.builtin.assert:
+        that:
+          - time_sync_service in ansible_facts.services
+          - ansible_facts.services[time_sync_service].state == 'running'
+        fail_msg: "{{ time_sync_service }} is not running."
+        success_msg: "{{ time_sync_service }} is running."

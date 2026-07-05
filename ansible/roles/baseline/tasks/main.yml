@@ -1,4 +1,30 @@
 ---
-- name: Include milestone note for baseline
-  ansible.builtin.debug:
-    msg: "Role baseline provides Milestone 2 automation foundation and is intentionally idempotent."
+- name: Configure the lab baseline
+  when: baseline_enabled | bool
+  block:
+    - name: Set the system timezone
+      community.general.timezone:
+        name: "{{ baseline_timezone }}"
+
+    - name: Install baseline packages
+      ansible.builtin.apt:
+        name: "{{ baseline_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure chrony time synchronization is enabled and running
+      ansible.builtin.service:
+        name: chrony
+        state: started
+        enabled: true
+
+    - name: Manage lab entries in /etc/hosts
+      ansible.builtin.blockinfile:
+        path: /etc/hosts
+        marker: "# {mark} ANSIBLE MANAGED LAB HOSTS"
+        block: |
+          {% for host in groups['all'] | sort %}
+          {{ hostvars[host].ansible_host | default(hostvars[host].ansible_facts.default_ipv4.address | default('')) }} {{ host }}
+          {% endfor %}
+      when: baseline_manage_hosts | bool

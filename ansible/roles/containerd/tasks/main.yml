@@ -1,4 +1,65 @@
 ---
-- name: Include milestone note for containerd
-  ansible.builtin.debug:
-    msg: "Role containerd provides Milestone 2 automation foundation and is intentionally idempotent."
+- name: Configure the containerd runtime
+  when: containerd_enabled | bool
+  block:
+    - name: Persist required kernel modules
+      ansible.builtin.copy:
+        dest: /etc/modules-load.d/containerd.conf
+        content: "{{ containerd_required_modules | join('\n') }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Reload kernel modules
+
+    - name: Load required kernel modules now
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ containerd_required_modules }}"
+
+    - name: Apply Kubernetes sysctl settings
+      ansible.posix.sysctl:
+        name: "{{ item.key }}"
+        value: "{{ item.value }}"
+        sysctl_file: /etc/sysctl.d/99-kubernetes.conf
+        sysctl_set: true
+        state: present
+        reload: true
+      loop: "{{ kubernetes_sysctl | dict2items }}"
+
+    - name: Install containerd
+      ansible.builtin.apt:
+        name: containerd
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure the containerd configuration directory exists
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Generate the default containerd configuration
+      ansible.builtin.command: containerd config default
+      register: containerd_default_config
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Write containerd configuration with the systemd cgroup driver
+      ansible.builtin.copy:
+        dest: "{{ containerd_config_path }}"
+        content: "{{ containerd_default_config.stdout | regex_replace('SystemdCgroup = false', 'SystemdCgroup = true') }}\n"
+        owner: root
+        group: root
+        mode: "0644"
+      when: not ansible_check_mode
+      notify: Restart containerd
+
+    - name: Ensure containerd is enabled and running
+      ansible.builtin.service:
+        name: containerd
+        state: started
+        enabled: true

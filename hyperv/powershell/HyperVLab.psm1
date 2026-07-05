@@ -41,10 +41,10 @@ function Test-LabVmDefinition {
 
   foreach ($vmName in $Configuration.vms.Keys) {
     $vm = $Configuration.vms[$vmName]
-    if ([int]$vm.cpu -lt 1) {
+    if ([int]$vm['cpu'] -lt 1) {
       throw "VM $vmName must request at least one vCPU."
     }
-    if (-not $vm.networks -or $vm.networks.Count -lt 1) {
+    if (-not $vm['networks'] -or $vm['networks'].Count -lt 1) {
       throw "VM $vmName must define at least one network."
     }
   }
@@ -106,8 +106,8 @@ function Get-LabVmPlan {
   if ($Configuration.networks) {
     foreach ($networkKey in $Configuration.networks.Keys) {
       $network = $Configuration.networks[$networkKey]
-      $switchName = [string]$network.name
-      $switchType = [string]$network.type
+      $switchName = [string]$network['name']
+      $switchType = [string]$network['type']
 
       if ([string]::IsNullOrWhiteSpace($switchName)) {
         throw "Network '$networkKey' must define a name."
@@ -117,15 +117,27 @@ function Get-LabVmPlan {
       }
 
       $subnet = $null
-      if ($network.subnet) {
-        $subnet = [string]$network.subnet
+      if ($network['subnet']) {
+        $subnet = [string]$network['subnet']
+      }
+
+      $adapterName = $null
+      if ($network['adapterName']) {
+        $adapterName = [string]$network['adapterName']
+      }
+
+      $gateway = $null
+      if ($network['gateway']) {
+        $gateway = [string]$network['gateway']
       }
 
       $switches.Add(@{
-          Key    = [string]$networkKey
-          Name   = $switchName
-          Type   = $switchType
-          Subnet = $subnet
+          Key         = [string]$networkKey
+          Name        = $switchName
+          Type        = $switchType
+          Subnet      = $subnet
+          AdapterName = $adapterName
+          Gateway     = $gateway
         })
     }
   }
@@ -135,31 +147,55 @@ function Get-LabVmPlan {
     foreach ($vmName in $Configuration.vms.Keys) {
       $vm = $Configuration.vms[$vmName]
 
-      if ([int]$vm.cpu -lt 1) {
+      if ([int]$vm['cpu'] -lt 1) {
         throw "VM $vmName must request at least one vCPU."
       }
-      if (-not $vm.networks -or $vm.networks.Count -lt 1) {
+      if (-not $vm['networks'] -or $vm['networks'].Count -lt 1) {
         throw "VM $vmName must define at least one network."
       }
-      if (-not $vm.memoryStartupBytes) {
+      if (-not $vm['memoryStartupBytes']) {
         throw "VM $vmName must define memoryStartupBytes."
       }
-      if (-not $vm.diskSizeBytes) {
+      if (-not $vm['diskSizeBytes']) {
         throw "VM $vmName must define diskSizeBytes."
       }
 
       $generation = 2
-      if ($vm.generation) {
-        $generation = [int]$vm.generation
+      if ($vm['generation']) {
+        $generation = [int]$vm['generation']
+      }
+
+      $hostname = [string]$vmName
+      if ($vm['hostname']) {
+        $hostname = [string]$vm['hostname']
+      }
+
+      $ipAddress = $null
+      if ($vm['ipAddress']) {
+        $ipAddress = [string]$vm['ipAddress']
+      }
+
+      $cloudInit = $null
+      if ($vm['cloudInit']) {
+        $cloudInit = [string]$vm['cloudInit']
+      }
+
+      $role = $null
+      if ($vm['role']) {
+        $role = [string]$vm['role']
       }
 
       $vms.Add(@{
           Name               = [string]$vmName
-          CpuCount           = [int]$vm.cpu
-          MemoryStartupBytes = ConvertTo-ByteCount -Size ([string]$vm.memoryStartupBytes)
-          DiskSizeBytes      = ConvertTo-ByteCount -Size ([string]$vm.diskSizeBytes)
-          Networks           = @($vm.networks | ForEach-Object { [string]$_ })
+          Hostname           = $hostname
+          Role               = $role
+          CpuCount           = [int]$vm['cpu']
+          MemoryStartupBytes = ConvertTo-ByteCount -Size ([string]$vm['memoryStartupBytes'])
+          DiskSizeBytes      = ConvertTo-ByteCount -Size ([string]$vm['diskSizeBytes'])
+          Networks           = @($vm['networks'] | ForEach-Object { [string]$_ })
           Generation         = $generation
+          IpAddress          = $ipAddress
+          CloudInit          = $cloudInit
         })
     }
   }
@@ -210,6 +246,175 @@ function Get-CloudInitMetadata {
 instance-id: $instanceId
 local-hostname: $Hostname
 "@
+}
+
+function Get-CloudInitNetworkConfig {
+  <#
+  .SYNOPSIS
+    Builds cloud-init NoCloud network-config (netplan v2) for a lab virtual machine.
+  .DESCRIPTION
+    Produces a deterministic netplan version 2 document. The primary interface uses DHCP
+    (typically the external switch that provides internet access) and the secondary
+    interface receives the static lab address on the internal observability network.
+    No default route is placed on the static interface unless -DefaultRouteOnStatic is set,
+    which avoids conflicting default routes on multi-homed guests.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$StaticIpCidr,
+
+    [string[]]$DnsServers = @('1.1.1.1', '9.9.9.9'),
+
+    [string]$PrimaryInterface = 'eth0',
+
+    [string]$StaticInterface = 'eth1',
+
+    [string]$Gateway,
+
+    [switch]$DefaultRouteOnStatic
+  )
+
+  if ($StaticIpCidr -notmatch '^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$') {
+    throw "StaticIpCidr must be in CIDR notation (for example '10.50.0.11/24'): $StaticIpCidr"
+  }
+
+  $builder = [System.Text.StringBuilder]::new()
+  [void]$builder.AppendLine('version: 2')
+  [void]$builder.AppendLine('ethernets:')
+  [void]$builder.AppendLine(('  {0}:' -f $PrimaryInterface))
+  [void]$builder.AppendLine('    dhcp4: true')
+  [void]$builder.AppendLine(('  {0}:' -f $StaticInterface))
+  [void]$builder.AppendLine('    dhcp4: false')
+  [void]$builder.AppendLine('    addresses:')
+  [void]$builder.AppendLine(('      - {0}' -f $StaticIpCidr))
+
+  if ($DefaultRouteOnStatic) {
+    if ([string]::IsNullOrWhiteSpace($Gateway)) {
+      throw '-DefaultRouteOnStatic requires -Gateway.'
+    }
+    [void]$builder.AppendLine('    routes:')
+    [void]$builder.AppendLine('      - to: default')
+    [void]$builder.AppendLine(('        via: {0}' -f $Gateway))
+  }
+
+  if ($DnsServers -and $DnsServers.Count -gt 0) {
+    [void]$builder.AppendLine('    nameservers:')
+    [void]$builder.AppendLine('      addresses:')
+    foreach ($dns in $DnsServers) {
+      [void]$builder.AppendLine(('        - {0}' -f $dns))
+    }
+  }
+
+  return $builder.ToString().TrimEnd() + "`n"
+}
+
+function New-CloudInitSeedStaging {
+  <#
+  .SYNOPSIS
+    Writes cloud-init NoCloud seed files (meta-data, user-data, network-config) to a staging folder.
+  .DESCRIPTION
+    Creates a per-VM staging directory populated with the three NoCloud files. The user-data is
+    copied from an existing #cloud-config document. The staging folder can later be turned into a
+    NoCloud seed image with New-CloudInitSeedImage. This function performs only filesystem writes
+    and is safe to unit test.
+  .OUTPUTS
+    The absolute path to the staging directory that was created.
+  #>
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$VmName,
+
+    [Parameter(Mandatory)]
+    [string]$UserDataPath,
+
+    [Parameter(Mandatory)]
+    [string]$OutputRootPath,
+
+    [string]$Hostname,
+
+    [string]$NetworkConfig
+  )
+
+  if (-not (Test-Path -LiteralPath $UserDataPath)) {
+    throw "cloud-init user-data not found: $UserDataPath"
+  }
+
+  $userData = Get-Content -LiteralPath $UserDataPath -Raw
+  if ($userData -notmatch '^\s*#cloud-config') {
+    throw "cloud-init user-data must begin with '#cloud-config': $UserDataPath"
+  }
+
+  $seedDirectory = Join-Path -Path $OutputRootPath -ChildPath $VmName
+  if (-not $PSCmdlet.ShouldProcess($seedDirectory, 'Write cloud-init NoCloud seed files')) {
+    return $seedDirectory
+  }
+
+  if (-not (Test-Path -LiteralPath $seedDirectory)) {
+    New-Item -ItemType Directory -Path $seedDirectory -Force | Out-Null
+  }
+
+  $metadata = Get-CloudInitMetadata -VmName $VmName -Hostname $Hostname
+  Set-Content -LiteralPath (Join-Path -Path $seedDirectory -ChildPath 'meta-data') -Value $metadata -NoNewline:$false
+  Set-Content -LiteralPath (Join-Path -Path $seedDirectory -ChildPath 'user-data') -Value $userData -NoNewline:$false
+
+  if (-not [string]::IsNullOrWhiteSpace($NetworkConfig)) {
+    Set-Content -LiteralPath (Join-Path -Path $seedDirectory -ChildPath 'network-config') -Value $NetworkConfig -NoNewline:$false
+  }
+
+  return $seedDirectory
+}
+
+function Get-LabAnsibleInventory {
+  <#
+  .SYNOPSIS
+    Generates an Ansible YAML inventory from the lab configuration.
+  .DESCRIPTION
+    Groups virtual machines by their declared role and emits an inventory that matches the
+    layout under ansible/inventories/lab. The static lab IP address (with any CIDR suffix
+    stripped) is used as ansible_host so the Hyper-V configuration remains the single source
+    of truth for host addressing. Output is deterministic (hosts and groups are sorted).
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    $Configuration
+  )
+
+  $plan = Get-LabVmPlan -Configuration $Configuration
+
+  $groups = [System.Collections.Specialized.OrderedDictionary]::new()
+  foreach ($vm in ($plan.Vms | Sort-Object -Property Name)) {
+    $groupName = if ([string]::IsNullOrWhiteSpace($vm.Role)) { 'ungrouped' } else { $vm.Role }
+    if (-not $groups.Contains($groupName)) {
+      $groups[$groupName] = [System.Collections.Generic.List[hashtable]]::new()
+    }
+    $address = $null
+    if ($vm.IpAddress) {
+      $address = ($vm.IpAddress -split '/')[0]
+    }
+    $groups[$groupName].Add(@{ Name = $vm.Name; Address = $address })
+  }
+
+  $builder = [System.Text.StringBuilder]::new()
+  [void]$builder.AppendLine('all:')
+  [void]$builder.AppendLine('  children:')
+  foreach ($groupName in ($groups.Keys | Sort-Object)) {
+    [void]$builder.AppendLine(('    {0}:' -f $groupName))
+    [void]$builder.AppendLine('      hosts:')
+    foreach ($entry in $groups[$groupName]) {
+      [void]$builder.AppendLine(('        {0}:' -f $entry.Name))
+      if ($entry.Address) {
+        [void]$builder.AppendLine(('          ansible_host: {0}' -f $entry.Address))
+      }
+    }
+  }
+
+  return $builder.ToString().TrimEnd() + "`n"
 }
 
 function Test-HyperVAvailable {
@@ -450,13 +655,108 @@ function Remove-LabVirtualMachine {
   return $true
 }
 
+function Test-OscdimgAvailable {
+  <#
+  .SYNOPSIS
+    Indicates whether the oscdimg.exe image builder (Windows ADK) is available on this host.
+  #>
+  [CmdletBinding()]
+  [OutputType([bool])]
+  param()
+
+  return [bool](Get-Command -Name 'oscdimg.exe' -ErrorAction SilentlyContinue)
+}
+
+function New-CloudInitSeedImage {
+  <#
+  .SYNOPSIS
+    Builds a cloud-init NoCloud seed ISO from a staging directory using oscdimg.exe.
+  .DESCRIPTION
+    The ISO is labelled 'cidata' so cloud-init's NoCloud data source discovers it automatically
+    when the disk is attached to the guest. Requires oscdimg.exe from the Windows ADK.
+  .OUTPUTS
+    The absolute path to the ISO that was created.
+  #>
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$SeedDirectory,
+
+    [Parameter(Mandatory)]
+    [string]$OutputIsoPath
+  )
+
+  if (-not (Test-Path -LiteralPath $SeedDirectory)) {
+    throw "cloud-init seed directory not found: $SeedDirectory"
+  }
+  if (-not (Test-OscdimgAvailable)) {
+    throw 'oscdimg.exe is not available. Install the Windows ADK (Deployment Tools) to build cloud-init seed images.'
+  }
+
+  if (-not $PSCmdlet.ShouldProcess($OutputIsoPath, 'Build cloud-init NoCloud seed image')) {
+    return $OutputIsoPath
+  }
+
+  $isoDirectory = Split-Path -Path $OutputIsoPath -Parent
+  if ($isoDirectory -and -not (Test-Path -LiteralPath $isoDirectory)) {
+    New-Item -ItemType Directory -Path $isoDirectory -Force | Out-Null
+  }
+
+  & oscdimg.exe '-lcidata' '-j1' '-m' '-o' $SeedDirectory $OutputIsoPath | Out-Null
+  if ($LASTEXITCODE -ne 0) {
+    throw "oscdimg.exe failed with exit code $LASTEXITCODE while building $OutputIsoPath."
+  }
+
+  return $OutputIsoPath
+}
+
+function Add-LabCloudInitDisk {
+  <#
+  .SYNOPSIS
+    Attaches a cloud-init NoCloud seed ISO to a virtual machine as a DVD drive (idempotent).
+  #>
+  [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Low')]
+  [OutputType([bool])]
+  param(
+    [Parameter(Mandatory)]
+    [string]$VmName,
+
+    [Parameter(Mandatory)]
+    [string]$IsoPath
+  )
+
+  if (-not (Test-HyperVAvailable)) {
+    throw 'Hyper-V cmdlets are not available on this host.'
+  }
+  if (-not (Test-Path -LiteralPath $IsoPath)) {
+    throw "cloud-init seed image not found: $IsoPath"
+  }
+
+  $existing = Get-VMDvdDrive -VMName $VmName -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq $IsoPath }
+  if ($existing) {
+    Write-Verbose "cloud-init seed '$IsoPath' is already attached to '$VmName'."
+    return $false
+  }
+
+  if (-not $PSCmdlet.ShouldProcess($VmName, "Attach cloud-init seed $IsoPath")) {
+    return $false
+  }
+
+  Add-VMDvdDrive -VMName $VmName -Path $IsoPath
+  return $true
+}
+
 function Invoke-LabProvisioning {
   <#
   .SYNOPSIS
     Provisions the full lab: virtual switches followed by virtual machines.
   .DESCRIPTION
     Validates and normalizes the configuration, then creates each virtual switch and
-    virtual machine idempotently. Supports -WhatIf and -Verbose.
+    virtual machine idempotently. When -CloudInitSourcePath is supplied, a cloud-init NoCloud
+    seed image is built and attached to every VM that declares a cloudInit user-data file.
+    Supports -WhatIf and -Verbose.
   #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'Medium')]
   param(
@@ -466,7 +766,13 @@ function Invoke-LabProvisioning {
     [Parameter(Mandatory)]
     [string]$VhdRootPath,
 
-    [string]$ExternalNetAdapterName
+    [string]$ExternalNetAdapterName,
+
+    [string]$CloudInitSourcePath,
+
+    [string]$CloudInitStagingPath,
+
+    [string[]]$DnsServers = @('1.1.1.1', '9.9.9.9')
   )
 
   if (-not (Test-HyperVAvailable)) {
@@ -482,13 +788,27 @@ function Invoke-LabProvisioning {
 
   foreach ($switch in $plan.Switches) {
     if ($switch.Type -eq 'External') {
-      if ([string]::IsNullOrWhiteSpace($ExternalNetAdapterName)) {
-        throw "External switch '$($switch.Name)' requires -ExternalNetAdapterName."
+      $adapter = $ExternalNetAdapterName
+      if ([string]::IsNullOrWhiteSpace($adapter)) {
+        $adapter = $switch.AdapterName
       }
-      New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -NetAdapterName $ExternalNetAdapterName -Confirm:$false | Out-Null
+      if ([string]::IsNullOrWhiteSpace($adapter)) {
+        throw "External switch '$($switch.Name)' requires -ExternalNetAdapterName or an adapterName in configuration."
+      }
+      New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -NetAdapterName $adapter -Confirm:$false | Out-Null
     }
     else {
       New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -Confirm:$false | Out-Null
+    }
+  }
+
+  if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath)) {
+    if ([string]::IsNullOrWhiteSpace($CloudInitStagingPath)) {
+      $CloudInitStagingPath = Join-Path -Path $VhdRootPath -ChildPath 'cloud-init-seeds'
+    }
+    $oscdimgAvailable = Test-OscdimgAvailable
+    if (-not $oscdimgAvailable) {
+      Write-Warning 'oscdimg.exe is not available; skipping cloud-init seed generation. Install the Windows ADK to enable it.'
     }
   }
 
@@ -502,6 +822,25 @@ function Invoke-LabProvisioning {
       -VhdPath $vhdPath `
       -Generation $vm.Generation `
       -Confirm:$false | Out-Null
+
+    if (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {
+      $userDataPath = Join-Path -Path $CloudInitSourcePath -ChildPath $vm.CloudInit
+      $networkConfig = $null
+      if ($vm.IpAddress) {
+        $networkConfig = Get-CloudInitNetworkConfig -StaticIpCidr $vm.IpAddress -DnsServers $DnsServers
+      }
+
+      $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name `
+        -UserDataPath $userDataPath `
+        -OutputRootPath $CloudInitStagingPath `
+        -Hostname $vm.Hostname `
+        -NetworkConfig $networkConfig `
+        -Confirm:$false
+
+      $isoPath = Join-Path -Path $CloudInitStagingPath -ChildPath ('{0}-cidata.iso' -f $vm.Name)
+      New-CloudInitSeedImage -SeedDirectory $seedDirectory -OutputIsoPath $isoPath -Confirm:$false | Out-Null
+      Add-LabCloudInitDisk -VmName $vm.Name -IsoPath $isoPath -Confirm:$false | Out-Null
+    }
   }
 }
 
@@ -539,7 +878,13 @@ Export-ModuleMember -Function `
   Get-LabVmPlan, `
   Get-CloudInitInstanceId, `
   Get-CloudInitMetadata, `
+  Get-CloudInitNetworkConfig, `
+  New-CloudInitSeedStaging, `
+  Get-LabAnsibleInventory, `
   Test-HyperVAvailable, `
+  Test-OscdimgAvailable, `
+  New-CloudInitSeedImage, `
+  Add-LabCloudInitDisk, `
   New-LabVirtualSwitch, `
   New-LabVirtualMachine, `
   Start-LabVirtualMachine, `

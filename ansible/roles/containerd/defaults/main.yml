@@ -1,2 +1,17 @@
 ---
 containerd_enabled: true
+
+# Path to the generated containerd configuration.
+containerd_config_path: /etc/containerd/config.toml
+
+# Kernel modules required by containerd. group_vars/all.yml overrides this
+# lab-wide; the literal list here keeps the role usable on its own.
+containerd_required_modules:
+  - overlay
+  - br_netfilter
+
+# sysctl values required for pod networking. Overridden by group_vars/all.yml.
+kubernetes_sysctl:
+  net.bridge.bridge-nf-call-iptables: 1
+  net.bridge.bridge-nf-call-ip6tables: 1
+  net.ipv4.ip_forward: 1

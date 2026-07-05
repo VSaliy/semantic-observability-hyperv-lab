@@ -1,2 +1,15 @@
 ---
 admin_tools_enabled: true
+
+# Pinned Helm version (overridden lab-wide by group_vars/all.yml).
+helm_version: "3.16.2"
+helm_download_url: "https://get.helm.sh/helm-v{{ helm_version }}-linux-amd64.tar.gz"
+helm_install_path: /usr/local/bin/helm
+
+# Administrative CLI packages installed from apt.
+admin_tools_packages:
+  - jq
+  - git
+  - make
+  - bash-completion
+  - vim

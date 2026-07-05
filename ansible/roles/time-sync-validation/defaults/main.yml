@@ -1,2 +1,5 @@
 ---
 time_sync_validation_enabled: true
+
+# Service expected to keep the clock synchronized.
+time_sync_service: chrony.service
