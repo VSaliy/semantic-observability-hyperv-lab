@@ -1,5 +1,37 @@
 Set-StrictMode -Version Latest
 
+function Write-LabStatus {
+  <#
+  .SYNOPSIS
+    Writes a colored, prefixed provisioning status line to the host console.
+  #>
+  [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '',
+    Justification = 'Provisioning progress is intended for the interactive console.')]
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory, Position = 0)]
+    [string]$Message,
+
+    [ValidateSet('Info', 'Step', 'Success', 'Warning')]
+    [string]$Level = 'Info'
+  )
+
+  $prefix = switch ($Level) {
+    'Step' { '==>' }
+    'Success' { '[ OK ]' }
+    'Warning' { '[WARN]' }
+    default { '  -' }
+  }
+  $color = switch ($Level) {
+    'Step' { 'Cyan' }
+    'Success' { 'Green' }
+    'Warning' { 'Yellow' }
+    default { 'Gray' }
+  }
+
+  Write-Host ("{0} {1}" -f $prefix, $Message) -ForegroundColor $color
+}
+
 function Test-IsAdministrator {
   [CmdletBinding()]
   param()
@@ -1027,9 +1059,9 @@ function New-CloudInitSeedImage {
     Remove-Item -LiteralPath $OutputIsoPath -Force
   }
 
-  & $OscdimgPath '-lcidata' '-j1' '-m' '-o' $SeedDirectory $OutputIsoPath | Out-Null
+  $oscdimgOutput = & $OscdimgPath '-lcidata' '-j2' '-m' '-o' $SeedDirectory $OutputIsoPath 2>&1
   if ($LASTEXITCODE -ne 0) {
-    throw "oscdimg.exe failed with exit code $LASTEXITCODE while building $OutputIsoPath."
+    throw "oscdimg.exe failed with exit code $LASTEXITCODE while building '$OutputIsoPath': $oscdimgOutput"
   }
 
   return $OutputIsoPath
@@ -1198,6 +1230,8 @@ function New-AutoinstallIso {
   New-Item -ItemType Directory -Path $workDir -Force | Out-Null
   $grubHostPath = Join-Path -Path $workDir -ChildPath 'grub.cfg'
 
+  Write-LabStatus ("Building autoinstall ISO ({0}) from '{1}' - this can take a few minutes..." -f $Engine, (Split-Path -Path $SourceIsoPath -Leaf)) -Level Step
+
   try {
     switch ($Engine) {
       'wsl' {
@@ -1212,6 +1246,7 @@ function New-AutoinstallIso {
         $wslGrub = ConvertTo-WslPath -Path $grubHostPath
 
         $extract = "set -e; command -v osirrox >/dev/null 2>&1 || { echo MISSING_XORRISO; exit 3; }; osirrox -indev '$wslIso' -extract /boot/grub/grub.cfg '$wslGrub'"
+        Write-LabStatus 'Extracting GRUB config via WSL/xorriso...'
         $extractOut = & wsl @distroArgs -- bash -lc $extract 2>&1
         if ($LASTEXITCODE -eq 3 -or ($extractOut -match 'MISSING_XORRISO')) {
           $install = 'sudo apt-get update && sudo apt-get install -y xorriso'
@@ -1225,6 +1260,7 @@ function New-AutoinstallIso {
         $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
 
         $repack = "set -e; xorriso -indev '$wslIso' -outdev '$wslOut' -boot_image any replay -map '$wslGrub' /boot/grub/grub.cfg -end"
+        Write-LabStatus 'Repacking bootable ISO via WSL/xorriso...'
         $repackOut = & wsl @distroArgs -- bash -lc $repack 2>&1
         if ($LASTEXITCODE -ne 0) {
           throw "Failed to repack ISO via WSL (exit $LASTEXITCODE): $repackOut"
@@ -1243,6 +1279,7 @@ function New-AutoinstallIso {
         $aptPrefix = 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq xorriso >/dev/null 2>&1;'
 
         $extract = "set -e; $aptPrefix osirrox -indev '/iso/$isoName' -extract /boot/grub/grub.cfg /work/grub.cfg"
+        Write-LabStatus 'Extracting GRUB config via Docker/xorriso (installing xorriso in container)...'
         $extractOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" $DockerImage bash -lc $extract 2>&1
         if ($LASTEXITCODE -ne 0) {
           throw "Failed to extract grub.cfg via Docker (exit $LASTEXITCODE): $extractOut"
@@ -1251,6 +1288,7 @@ function New-AutoinstallIso {
         $null = Update-GrubConfigFile -Path $grubHostPath -KernelArguments $KernelArguments
 
         $repack = "set -e; $aptPrefix xorriso -indev '/iso/$isoName' -outdev '/out/$outName' -boot_image any replay -map /work/grub.cfg /boot/grub/grub.cfg -end"
+        Write-LabStatus 'Repacking bootable ISO via Docker/xorriso...'
         $repackOut = & docker run --rm -v "${isoDir}:/iso:ro" -v "${workDirFwd}:/work" -v "${outDir}:/out" $DockerImage bash -lc $repack 2>&1
         if ($LASTEXITCODE -ne 0) {
           throw "Failed to repack ISO via Docker (exit $LASTEXITCODE): $repackOut"
@@ -1271,6 +1309,7 @@ function New-AutoinstallIso {
         $extractDir = Join-Path -Path $workDir -ChildPath 'extract'
         New-Item -ItemType Directory -Path $extractDir -Force | Out-Null
 
+        Write-LabStatus 'Extracting installer ISO with 7-Zip...'
         $extractOut = & $sevenZip.Source x $SourceIsoPath "-o$extractDir" -y 2>&1
         if ($LASTEXITCODE -ne 0) {
           throw "7-Zip extraction failed (exit $LASTEXITCODE): $extractOut"
@@ -1280,6 +1319,7 @@ function New-AutoinstallIso {
         if (-not (Test-Path -LiteralPath $grubCfg)) {
           throw "grub.cfg not found after extraction: $grubCfg"
         }
+        Write-LabStatus 'Injecting autoinstall kernel argument into GRUB...'
         $null = Update-GrubConfigFile -Path $grubCfg -KernelArguments $KernelArguments
 
         $loopbackCfg = Join-Path -Path $extractDir -ChildPath 'boot\grub\loopback.cfg'
@@ -1306,7 +1346,10 @@ function New-AutoinstallIso {
           Remove-Item -LiteralPath $OutputIsoPath -Force
         }
 
-        $oscdimgOut = & $oscdimgPath -m -o -h -j1 $bootData "-l$VolumeLabel" $extractDir $OutputIsoPath 2>&1
+        Write-LabStatus 'Repacking bootable ISO with oscdimg...'
+        # Flags match the proven istio-practical-lab build (-m -o -j2 -bootdata:...); Joliet is what
+        # GRUB/casper read on the Ubuntu ISO, so -j2 is the verified-bootable choice.
+        $oscdimgOut = & $oscdimgPath -m -o -j2 $bootData "-l$VolumeLabel" $extractDir $OutputIsoPath 2>&1
         if ($LASTEXITCODE -ne 0) {
           throw "oscdimg.exe failed (exit $LASTEXITCODE): $oscdimgOut"
         }
@@ -1319,6 +1362,7 @@ function New-AutoinstallIso {
     }
   }
 
+  Write-LabStatus "Autoinstall ISO ready: $OutputIsoPath" -Level Success
   return $OutputIsoPath
 }
 
@@ -1418,8 +1462,13 @@ function Invoke-LabProvisioning {
     $sourceDir = Split-Path -Path $InstallIsoPath -Parent
     $sourceBase = [System.IO.Path]::GetFileNameWithoutExtension($InstallIsoPath)
     $autoinstallIsoPath = Join-Path -Path $sourceDir -ChildPath ('{0}-autoinstall.iso' -f $sourceBase)
-    $InstallIsoPath = New-AutoinstallIso -SourceIsoPath $InstallIsoPath -OutputIsoPath $autoinstallIsoPath `
-      -Engine $IsoEngine -Force:$Rebuild -Confirm:$false
+    try {
+      $InstallIsoPath = New-AutoinstallIso -SourceIsoPath $InstallIsoPath -OutputIsoPath $autoinstallIsoPath `
+        -Engine $IsoEngine -Force:$Rebuild -Confirm:$false
+    }
+    catch {
+      throw "Failed to build the autoinstall ISO (engine '$IsoEngine'): $($_.Exception.Message)"
+    }
   }
 
   $autoinstallValues = $null
@@ -1433,8 +1482,14 @@ function Invoke-LabProvisioning {
     if (-not (Test-Path -LiteralPath $AutoinstallTemplatePath)) {
       throw "autoinstall template not found: $AutoinstallTemplatePath"
     }
-    # Loaded once; treated as sensitive and never written back to the repository or logs.
-    $autoinstallValues = Import-DotEnv -Path $EnvFile
+    Write-LabStatus ("Loading autoinstall secrets from '{0}'..." -f $EnvFile)
+    try {
+      # Loaded once; treated as sensitive and never written back to the repository or logs.
+      $autoinstallValues = Import-DotEnv -Path $EnvFile
+    }
+    catch {
+      throw "Failed to load autoinstall secrets from '$EnvFile': $($_.Exception.Message)"
+    }
   }
 
   $null = Test-LabVmDefinition -Configuration $Configuration
@@ -1444,19 +1499,34 @@ function Invoke-LabProvisioning {
     return
   }
 
+  $switchCount = @($plan.Switches).Count
+  $vmCount = @($plan.Vms).Count
+  Write-LabStatus ("Provisioning lab: {0} virtual switch(es), {1} virtual machine(s)." -f $switchCount, $vmCount) -Level Step
+
   foreach ($switch in $plan.Switches) {
-    if ($switch.Type -eq 'External') {
-      $adapter = $ExternalNetAdapterName
-      if ([string]::IsNullOrWhiteSpace($adapter)) {
-        $adapter = $switch.AdapterName
+    try {
+      if ($switch.Type -eq 'External') {
+        $adapter = $ExternalNetAdapterName
+        if ([string]::IsNullOrWhiteSpace($adapter)) {
+          $adapter = $switch.AdapterName
+        }
+        if ([string]::IsNullOrWhiteSpace($adapter)) {
+          throw "External switch '$($switch.Name)' requires -ExternalNetAdapterName or an adapterName in configuration."
+        }
+        $switchCreated = New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -NetAdapterName $adapter -Confirm:$false
       }
-      if ([string]::IsNullOrWhiteSpace($adapter)) {
-        throw "External switch '$($switch.Name)' requires -ExternalNetAdapterName or an adapterName in configuration."
+      else {
+        $switchCreated = New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -Confirm:$false
       }
-      New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -NetAdapterName $adapter -Confirm:$false | Out-Null
+      if ($switchCreated) {
+        Write-LabStatus ("Created {0} switch '{1}'." -f $switch.Type, $switch.Name) -Level Success
+      }
+      else {
+        Write-LabStatus ("Switch '{0}' already present; leaving it in place." -f $switch.Name)
+      }
     }
-    else {
-      New-LabVirtualSwitch -Name $switch.Name -Type $switch.Type -Confirm:$false | Out-Null
+    catch {
+      throw "Failed to ensure virtual switch '$($switch.Name)' ($($switch.Type)): $($_.Exception.Message)"
     }
   }
 
@@ -1466,7 +1536,7 @@ function Invoke-LabProvisioning {
     }
     $oscdimgAvailable = Test-OscdimgAvailable
     if (-not $oscdimgAvailable -and -not $Autoinstall) {
-      Write-Warning 'oscdimg.exe is not available; skipping cloud-init seed generation. Install the Windows ADK to enable it.'
+      Write-LabStatus 'oscdimg.exe is not available; skipping cloud-init seed generation (install the Windows ADK to enable it).' -Level Warning
     }
   }
 
@@ -1474,58 +1544,75 @@ function Invoke-LabProvisioning {
     New-Item -ItemType Directory -Path $VhdRootPath -Force | Out-Null
   }
 
+  $index = 0
   foreach ($vm in $plan.Vms) {
-    $vhdPath = Join-Path -Path $VhdRootPath -ChildPath ('{0}.vhdx' -f $vm.Name)
+    $index++
+    $label = '[{0}/{1}] {2}' -f $index, $vmCount, $vm.Name
+    try {
+      $vhdPath = Join-Path -Path $VhdRootPath -ChildPath ('{0}.vhdx' -f $vm.Name)
 
-    if ($Rebuild) {
-      Remove-LabVirtualMachine -Name $vm.Name -RemoveDisks -Confirm:$false | Out-Null
-    }
+      if ($Rebuild) {
+        Write-LabStatus ("{0}: removing existing VM and disk (rebuild)..." -f $label)
+        Remove-LabVirtualMachine -Name $vm.Name -RemoveDisks -Confirm:$false | Out-Null
+      }
 
-    New-LabVirtualMachine -Name $vm.Name `
-      -MemoryStartupBytes $vm.MemoryStartupBytes `
-      -CpuCount $vm.CpuCount `
-      -DiskSizeBytes $vm.DiskSizeBytes `
-      -SwitchNames $vm.Networks `
-      -VhdPath $vhdPath `
-      -Generation $vm.Generation `
-      -Force:$Rebuild `
-      -Confirm:$false | Out-Null
-
-    $networkConfig = $null
-    if ($vm.IpAddress) {
-      $networkConfig = Get-CloudInitNetworkConfig -StaticIpCidr $vm.IpAddress -DnsServers $DnsServers
-    }
-
-    $seedDirectory = $null
-    if ($Autoinstall) {
-      $userData = Get-AutoinstallUserData -TemplatePath $AutoinstallTemplatePath -Values $autoinstallValues -Hostname $vm.Hostname
-      $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name `
-        -UserDataContent $userData `
-        -OutputRootPath $CloudInitStagingPath `
-        -Hostname $vm.Hostname `
-        -NetworkConfig $networkConfig `
+      Write-LabStatus ("{0}: creating VM ({1} vCPU, {2:N0} MB RAM, {3:N0} GB disk)..." -f $label, $vm.CpuCount, ($vm.MemoryStartupBytes / 1MB), ($vm.DiskSizeBytes / 1GB)) -Level Step
+      $vmCreated = New-LabVirtualMachine -Name $vm.Name `
+        -MemoryStartupBytes $vm.MemoryStartupBytes `
+        -CpuCount $vm.CpuCount `
+        -DiskSizeBytes $vm.DiskSizeBytes `
+        -SwitchNames $vm.Networks `
+        -VhdPath $vhdPath `
+        -Generation $vm.Generation `
+        -Force:$Rebuild `
         -Confirm:$false
-    }
-    elseif (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {
-      $userDataPath = Join-Path -Path $CloudInitSourcePath -ChildPath $vm.CloudInit
-      $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name `
-        -UserDataPath $userDataPath `
-        -OutputRootPath $CloudInitStagingPath `
-        -Hostname $vm.Hostname `
-        -NetworkConfig $networkConfig `
-        -Confirm:$false
-    }
+      if (-not $vmCreated) {
+        Write-LabStatus ("{0}: VM already exists; leaving it in place." -f $label)
+      }
 
-    if ($seedDirectory) {
-      $isoPath = Join-Path -Path $CloudInitStagingPath -ChildPath ('{0}-cidata.iso' -f $vm.Name)
-      New-CloudInitSeedImage -SeedDirectory $seedDirectory -OutputIsoPath $isoPath -Confirm:$false | Out-Null
-      Add-LabCloudInitDisk -VmName $vm.Name -IsoPath $isoPath -Confirm:$false | Out-Null
-    }
+      $networkConfig = $null
+      if ($vm.IpAddress) {
+        $networkConfig = Get-CloudInitNetworkConfig -StaticIpCidr $vm.IpAddress -DnsServers $DnsServers
+      }
 
-    if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
-      Add-LabInstallMedia -VmName $vm.Name -IsoPath $InstallIsoPath `
-        -SetFirstBootDevice:(-not $Autoinstall) -BootAfterDisk:$Autoinstall -Confirm:$false | Out-Null
+      $seedDirectory = $null
+      if ($Autoinstall) {
+        Write-LabStatus ("{0}: rendering autoinstall seed..." -f $label)
+        $userData = Get-AutoinstallUserData -TemplatePath $AutoinstallTemplatePath -Values $autoinstallValues -Hostname $vm.Hostname
+        $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name -UserDataContent $userData -OutputRootPath $CloudInitStagingPath -Hostname $vm.Hostname -NetworkConfig $networkConfig -Confirm:$false
+      }
+      elseif (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {
+        Write-LabStatus ("{0}: staging cloud-init seed from '{1}'..." -f $label, $vm.CloudInit)
+        $userDataPath = Join-Path -Path $CloudInitSourcePath -ChildPath $vm.CloudInit
+        $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name -UserDataPath $userDataPath -OutputRootPath $CloudInitStagingPath -Hostname $vm.Hostname -NetworkConfig $networkConfig -Confirm:$false
+      }
+
+      if ($seedDirectory) {
+        $isoPath = Join-Path -Path $CloudInitStagingPath -ChildPath ('{0}-cidata.iso' -f $vm.Name)
+        New-CloudInitSeedImage -SeedDirectory $seedDirectory -OutputIsoPath $isoPath -Confirm:$false | Out-Null
+        Add-LabCloudInitDisk -VmName $vm.Name -IsoPath $isoPath -Confirm:$false | Out-Null
+        Write-LabStatus ("{0}: attached cloud-init seed." -f $label)
+      }
+
+      if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
+        $bootMode = if ($Autoinstall) { 'disk-first (auto-installs then boots disk)' } else { 'DVD-first' }
+        Add-LabInstallMedia -VmName $vm.Name -IsoPath $InstallIsoPath -SetFirstBootDevice:(-not $Autoinstall) -BootAfterDisk:$Autoinstall -Confirm:$false | Out-Null
+        Write-LabStatus ("{0}: attached installer media (boot order: {1})." -f $label, $bootMode)
+      }
+
+      Write-LabStatus ("{0}: ready." -f $label) -Level Success
     }
+    catch {
+      throw "Failed provisioning VM '$($vm.Name)' ($label): $($_.Exception.Message)"
+    }
+  }
+
+  Write-LabStatus ("Provisioning complete: {0} of {1} VM(s) processed successfully." -f $vmCount, $vmCount) -Level Success
+  if ($Autoinstall) {
+    Write-LabStatus 'Next: start the VMs to run the unattended install; they reboot into the installed OS automatically (disk-first boot order).'
+  }
+  elseif (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
+    Write-LabStatus 'Next: start the VMs, complete the installer, then detach the ISO (see hyperv/README.md).'
   }
 }
 

@@ -180,10 +180,10 @@ Then install the OS one of two ways:
     -OutputIsoPath 'E:\ISO\ubuntu-24.04.3-autoinstall.iso' -Engine oscdimg   # wsl | docker | oscdimg
   ```
 
-  > The `oscdimg` engine (7-Zip extract + `oscdimg -m -o -h -j1 -bootdata:…`) is
-  > the no-WSL path and reuses the same tested GRUB edit. It does not write Rock
-  > Ridge, so keep it in mind if you rely on offline apt from the ISO pool; the
-  > `wsl`/`docker` xorriso engines preserve the exact boot metadata.
+  > The `oscdimg` engine (7-Zip extract + `oscdimg -m -o -j2 -bootdata:…`) is the
+  > no-WSL path and reuses the same tested GRUB edit. It does not write Rock Ridge, so keep it in
+  > mind if you rely on offline apt from the ISO pool; the `wsl`/`docker` xorriso
+  > engines preserve the exact boot metadata.
 
 After the install finishes, detach the installer so the VM boots from disk:
 
