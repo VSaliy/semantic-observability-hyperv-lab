@@ -32,11 +32,11 @@ resource "kubernetes_resource_quota_v1" "tenant" {
   }
   spec {
     hard = {
-      "requests.cpu"       = var.cpu_quota
-      "requests.memory"    = var.memory_quota
-      "requests.storage"   = var.storage_quota
-      "limits.cpu"         = var.cpu_quota
-      "limits.memory"      = var.memory_quota
+      "requests.cpu"     = var.cpu_quota
+      "requests.memory"  = var.memory_quota
+      "requests.storage" = var.storage_quota
+      "limits.cpu"       = var.cpu_quota
+      "limits.memory"    = var.memory_quota
     }
   }
 }

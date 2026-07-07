@@ -60,10 +60,18 @@ terraform-validate: ## Format and validate Terraform where available
 @if command -v terraform >/dev/null 2>&1; then terraform -chdir=terraform fmt -check -recursive && terraform -chdir=terraform/environments/lab init -backend=false -input=false >/dev/null && terraform -chdir=terraform/environments/lab validate; else echo 'terraform not installed; skipping'; fi
 
 ansible-lint: ## Run Ansible linting
-ansible-lint ansible/playbooks/site.yml ansible/playbooks/validate.yml
+	ansible-lint ansible/playbooks/site.yml ansible/playbooks/validate.yml ansible/playbooks/cluster.yml
 
 yamllint: ## Run YAML linting
 yamllint .
 
 kubernetes-validate: ## Validate Kubernetes YAML syntax locally
-$(PYTHON) ./scripts/validation/validate-kubernetes.py
+	$(PYTHON) ./scripts/validation/validate-kubernetes.py
+
+cluster-up: ## Bootstrap the kubeadm cluster and platform add-ons (Milestone 3)
+	cd ansible && ansible-playbook playbooks/cluster.yml
+
+tenant-apply: ## Apply the tenant Terraform module to the running cluster (Milestone 3)
+	terraform -chdir=terraform/environments/lab init -input=false
+	terraform -chdir=terraform/environments/lab apply -auto-approve
+

@@ -11,10 +11,10 @@
   recreated. Virtual switches (and any NAT) are always left in place.
 
 .EXAMPLE
-  ./provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' -ExternalNetAdapterName 'Ethernet'
+  ./provision-lab.ps1 -VhdRootPath 'C:\HyperV\VHDs' -ExternalNetAdapterName 'Ethernet'
 
 .EXAMPLE
-  ./provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' -CloudInitSourcePath ../cloud-init -Rebuild
+  ./provision-lab.ps1 -VhdRootPath 'C:\HyperV\VHDs' -CloudInitSourcePath ../cloud-init -Rebuild
 
 .NOTES
   For a dry run, import HyperVLab.psm1 and call Invoke-LabProvisioning with -WhatIf.
@@ -40,6 +40,10 @@ param(
 
   [ValidateSet('wsl', 'docker', 'oscdimg')]
   [string]$IsoEngine = 'wsl',
+
+  [switch]$StartVms,
+
+  [switch]$DynamicMemory,
 
   [switch]$Rebuild
 )
@@ -81,6 +85,12 @@ if (-not [string]::IsNullOrWhiteSpace($EnvFile)) {
 if ($BuildAutoinstallIso) {
   $provisioningParameters['BuildAutoinstallIso'] = $true
   $provisioningParameters['IsoEngine'] = $IsoEngine
+}
+if ($StartVms) {
+  $provisioningParameters['StartVms'] = $true
+}
+if ($DynamicMemory) {
+  $provisioningParameters['DynamicMemory'] = $true
 }
 
 Invoke-LabProvisioning @provisioningParameters

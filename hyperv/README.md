@@ -5,6 +5,28 @@ Kubernetes platform in later milestones. The logic lives in
 `powershell/HyperVLab.psm1` and is driven by the declarative
 `config/lab-config.yaml`.
 
+## Module layout
+
+`HyperVLab.psm1` is a thin loader: it sets `$script:LabModuleRoot`, dot-sources
+every `powershell/lib/*.ps1` file into the module scope, and exports the public
+functions. Functions are grouped by concern so each file stays small:
+
+| File | Contents |
+| --- | --- |
+| `lib/Common.ps1` | Status output, admin/Hyper-V checks, byte parsing |
+| `lib/Configuration.ps1` | Config load, validation, VM plan, Ansible inventory |
+| `lib/HostReadiness.ps1` | `Test-LabHostReadiness` precheck |
+| `lib/CloudInit.ps1` | NoCloud meta-data/network-config/seed, `.env`, autoinstall user-data |
+| `lib/AutoinstallIso.ps1` | oscdimg/xorriso discovery, GRUB edit, ISO build (`New-AutoinstallIso`) |
+| `lib/VirtualMachine.ps1` | Switch/VM create/start/stop/remove, media attach |
+| `lib/Network.ps1` | `New-LabNatNetwork` (internal switch + WinNAT) |
+| `lib/NodeReadiness.ps1` | TCP probe, SSH wait, known-hosts cleanup |
+| `lib/Environment.ps1` | `Invoke-LabProvisioning`, lab start/stop/status/remove |
+
+Consumers still just `Import-Module ./hyperv/powershell/HyperVLab.psm1` — the
+split is internal. Functions use `$script:LabModuleRoot` (not `$PSScriptRoot`,
+which inside `lib/` would point at the wrong folder) for repo-relative paths.
+
 ## Lab topology
 
 `config/lab-config.yaml` and `../ansible/inventories/lab/hosts.yml` describe the
@@ -48,17 +70,39 @@ Import-Module ./hyperv/powershell/HyperVLab.psm1
 $config = Import-LabConfiguration -Path ./hyperv/config/lab-config.yaml
 
 # Dry run first.
-Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' -WhatIf
+Invoke-LabProvisioning -Configuration $config -VhdRootPath 'C:\HyperV\VHDs' -WhatIf
 
 # Provision VMs and attach cloud-init seeds (requires oscdimg.exe from the Windows ADK).
 Invoke-LabProvisioning `
   -Configuration $config `
-  -VhdRootPath 'D:\HyperV\VHDs' `
+  -VhdRootPath 'C:\HyperV\VHDs' `
   -CloudInitSourcePath ./hyperv/cloud-init
 ```
 
 `provision-lab.ps1` wraps the same flow with prerequisite checks. Requires
 `ConvertFrom-Yaml` (the `powershell-yaml` module) to load YAML configuration.
+
+## Starting the VMs
+
+Provisioning creates the VMs **powered off** and does not start them (with
+`-Autoinstall` a start triggers a destructive unattended install, so it's a
+deliberate step). Power them on with:
+
+```powershell
+# Opt in during provisioning:
+Invoke-LabProvisioning -Configuration $config -VhdRootPath 'C:\HyperV\VHDs' -Autoinstall -BuildAutoinstallIso -StartVms
+
+# Or afterwards (idempotent, skips VMs already running):
+$plan = Get-LabVmPlan -Configuration $config
+$plan.Vms | ForEach-Object { Start-LabVirtualMachine -Name $_.Name }
+```
+
+> **Host RAM:** VMs use **fixed** startup memory by default, so all of it is
+> reserved when the VM starts. If the sum exceeds free host RAM, later VMs fail
+> to start (`Insufficient system resources`, `0x800705AA`). Provisioning warns
+> up front and reports each start result. To fit more nodes on a small host,
+> recreate them with Dynamic Memory: `Invoke-LabProvisioning … -DynamicMemory -Rebuild`
+> (or reduce `memoryStartupBytes` in `lab-config.yaml`).
 
 ## Re-running, clean rebuild, and teardown
 
@@ -72,9 +116,9 @@ disk sizes), use `-Rebuild`. It removes each lab VM and its disk, then recreates
 it. Switches and NAT are left in place:
 
 ```powershell
-Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' -CloudInitSourcePath ./hyperv/cloud-init -Rebuild
+Invoke-LabProvisioning -Configuration $config -VhdRootPath 'C:\HyperV\VHDs' -CloudInitSourcePath ./hyperv/cloud-init -Rebuild
 # or via the wrapper:
-./hyperv/powershell/provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' -CloudInitSourcePath ../cloud-init -Rebuild
+./hyperv/powershell/provision-lab.ps1 -VhdRootPath 'C:\HyperV\VHDs' -CloudInitSourcePath ../cloud-init -Rebuild
 ```
 
 To tear the lab down without recreating it:
@@ -109,7 +153,7 @@ Attach the installer and boot it. Provisioning sets the ISO as the first boot
 device automatically:
 
 ```powershell
-Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
+Invoke-LabProvisioning -Configuration $config -VhdRootPath 'C:\HyperV\VHDs' `
   -CloudInitSourcePath ./hyperv/cloud-init `
   -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso'
 # or set installIso in lab-config.yaml, or use provision-lab.ps1 -InstallIsoPath
@@ -125,9 +169,9 @@ Then install the OS one of two ways:
 
   ```powershell
   Copy-Item .env.example .env   # then edit .env with real values (never commit it)
-  Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
+  Invoke-LabProvisioning -Configuration $config -VhdRootPath 'C:\HyperV\VHDs' `
     -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' -Autoinstall
-  # or: ./hyperv/powershell/provision-lab.ps1 -VhdRootPath 'D:\HyperV\VHDs' `
+  # or: ./hyperv/powershell/provision-lab.ps1 -VhdRootPath 'C:\HyperV\VHDs' `
   #        -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' -Autoinstall
   ```
 
@@ -165,7 +209,7 @@ Then install the OS one of two ways:
 
   ```powershell
   # wsl engine one-time:  wsl sudo apt-get update; wsl sudo apt-get install -y xorriso
-  Invoke-LabProvisioning -Configuration $config -VhdRootPath 'D:\HyperV\VHDs' `
+  Invoke-LabProvisioning -Configuration $config -VhdRootPath 'C:\HyperV\VHDs' `
     -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' `
     -Autoinstall -BuildAutoinstallIso -IsoEngine wsl   # or: -IsoEngine oscdimg (native) / docker
   ```
@@ -198,6 +242,57 @@ Set-VMFirmware -VMName k8s-cp1 -FirstBootDevice (Get-VMHardDiskDrive -VMName k8s
 > `shutdown: reboot` runs, the now-bootable disk starts the installed OS — no
 > reinstall loop and no manual detach. The manual detach above is only needed for
 > the non-autoinstall (DVD-first) flow.
+
+## Operational helpers
+
+These functions (adopted from a proven Hyper-V lab) complement provisioning:
+
+### Host readiness precheck
+
+`Test-LabHostReadiness` collects **all** problems at once (elevation, edition,
+Hyper-V + `vmms`, RAM, free disk, required cmdlets, YAML support, ISO presence):
+
+```powershell
+$r = Test-LabHostReadiness -VhdRootPath 'C:\HyperV\VHDs' -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' -RequireYaml
+if (-not $r.Passed) { $r.Failures | ForEach-Object { Write-Warning $_ } }
+```
+
+### NAT networking (no external adapter needed)
+
+`New-LabNatNetwork` creates an **internal** switch + static host vNIC + **WinNAT**,
+so guests get a stable subnet and outbound internet **without binding a physical
+adapter** — this avoids the "external adapter already bound" conflict and works on
+laptops/Wi-Fi. It detects route and NAT-prefix conflicts first.
+
+```powershell
+New-LabNatNetwork -SwitchName 'Observability-Internal' -HostIpAddress '10.50.0.1' `
+  -PrefixLength 24 -NatName 'ObservabilityNat' -NatPrefix '10.50.0.0/24'
+```
+
+### Wait for nodes, then hand off to Ansible
+
+After `-StartVms -Autoinstall`, block until the freshly installed nodes are
+reachable (and clear stale SSH host keys from a previous `-Rebuild`):
+
+```powershell
+Clear-LabSshKnownHost -HostName 10.50.0.10, 10.50.0.11, 10.50.0.12, 10.50.0.13
+Wait-LabNodeSsh -Address 10.50.0.10, 10.50.0.11, 10.50.0.12, 10.50.0.13 -TimeoutMinutes 60
+# nodes are now reachable -> run the Ansible playbooks
+```
+
+### Lab lifecycle and status
+
+```powershell
+Start-LabEnvironment -Configuration $config
+Get-LabStatus -Configuration $config | Format-Table -AutoSize
+Stop-LabEnvironment -Configuration $config          # -Force to hard stop
+```
+
+### VM policies
+
+`New-LabVirtualMachine` (used by provisioning) sets sensible defaults:
+`-AutomaticStopAction ShutDown`, `-CheckpointType Production`, and
+`-AutomaticStartAction Nothing`; pass `-DynamicMemory` to enable dynamic memory.
 
 ## Prerequisites
 

@@ -123,6 +123,14 @@ Describe 'Hyper-V lifecycle guards' {
       { Start-LabVirtualMachine -Name 'obs-admin' } | Should -Throw '*Hyper-V cmdlets are not available*'
       { Stop-LabVirtualMachine -Name 'obs-admin' } | Should -Throw '*Hyper-V cmdlets are not available*'
       { Remove-LabVirtualMachine -Name 'obs-admin' } | Should -Throw '*Hyper-V cmdlets are not available*'
+      { New-LabNatNetwork -SwitchName 'Lab' -HostIpAddress '10.50.0.1' -PrefixLength 24 -NatName 'LabNat' -NatPrefix '10.50.0.0/24' } |
+        Should -Throw '*Hyper-V cmdlets are not available*'
+      { Start-LabEnvironment -Configuration @{ vms = @{ x = @{ cpu = 1; networks = @('Lab') } } } } |
+        Should -Throw '*Hyper-V cmdlets are not available*'
+      { Stop-LabEnvironment -Configuration @{ vms = @{ x = @{ cpu = 1; networks = @('Lab') } } } } |
+        Should -Throw '*Hyper-V cmdlets are not available*'
+      { Get-LabStatus -Configuration @{ vms = @{ x = @{ cpu = 1; networks = @('Lab') } } } } |
+        Should -Throw '*Hyper-V cmdlets are not available*'
     }
   }
 
@@ -518,6 +526,8 @@ Describe 'New-LabVirtualMachine leftover disk handling' -Skip:(-not (Get-Command
       Mock Get-VM { $null }
       Mock New-VM { }
       Mock Set-VMProcessor { }
+      Mock Set-VM { }
+      Mock Set-VMMemory { }
       Mock Set-VMFirmware { }
       Mock Add-VMNetworkAdapter { }
 
@@ -531,7 +541,38 @@ Describe 'New-LabVirtualMachine leftover disk handling' -Skip:(-not (Get-Command
       Test-Path -LiteralPath $vhd | Should -BeFalse
       Should -Invoke New-VM -Times 1
       Should -Invoke Set-VMFirmware -Times 1
+      Should -Invoke Set-VM -Times 1
+      Should -Invoke Set-VMMemory -Times 1
     }
+  }
+}
+
+Describe 'Test-LabTcpPort' {
+  It 'returns $false for a closed port' {
+    Test-LabTcpPort -HostName '127.0.0.1' -Port 1 -TimeoutMilliseconds 500 | Should -BeFalse
+  }
+}
+
+Describe 'Test-LabHostReadiness' {
+  It 'returns a structured result with Passed, Failures and Warnings' {
+    $result = Test-LabHostReadiness -VhdRootPath 'C:\HyperV\VHDs'
+    $result.PSObject.Properties.Name | Should -Contain 'Passed'
+    $result.PSObject.Properties.Name | Should -Contain 'Failures'
+    $result.PSObject.Properties.Name | Should -Contain 'Warnings'
+    $result.Passed -is [bool] | Should -BeTrue
+  }
+
+  It 'reports a missing installer ISO as a failure' {
+    $result = Test-LabHostReadiness -InstallIsoPath 'Z:\does-not-exist.iso'
+    ($result.Failures -join "`n") | Should -Match 'Installer ISO not found'
+    $result.Passed | Should -BeFalse
+  }
+}
+
+Describe 'Wait-LabNodeSsh' {
+  It 'throws a timeout error when the node never becomes reachable' {
+    { Wait-LabNodeSsh -Address '192.0.2.1' -Port 22 -TimeoutMinutes 0 -PollSeconds 1 } |
+      Should -Throw '*Timed out*'
   }
 }
 

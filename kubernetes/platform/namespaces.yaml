@@ -1,3 +1,6 @@
+# Shared platform namespaces. Tenant namespaces (tenant-trading,
+# tenant-market-data) are provisioned authoritatively by the Terraform tenant
+# module under terraform/environments/lab, not from this file.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -32,24 +35,4 @@ metadata:
   labels:
     platform.example.com/owner: platform-team
     platform.example.com/environment: shared
-    platform.example.com/data-classification: internal
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: tenant-trading
-  labels:
-    platform.example.com/tenant: trading
-    platform.example.com/owner: platform-team
-    platform.example.com/environment: production
-    platform.example.com/data-classification: internal
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: tenant-market-data
-  labels:
-    platform.example.com/tenant: market-data
-    platform.example.com/owner: platform-team
-    platform.example.com/environment: production
     platform.example.com/data-classification: internal

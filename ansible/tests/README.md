@@ -5,7 +5,7 @@ Validate the roles and playbooks with:
 ```bash
 cd ansible
 yamllint .
-ansible-lint playbooks/site.yml playbooks/validate.yml
+ansible-lint playbooks/site.yml playbooks/validate.yml playbooks/cluster.yml
 ansible-playbook playbooks/site.yml --check --diff
 ```
 
@@ -27,6 +27,10 @@ skipped or no-ops during a dry run:
   actually configured.
 - **time-sync-validation**: `timedatectl`/`service_facts` run even in check mode
   (`check_mode: false`) so the assertions remain meaningful.
+- **kubeadm-control-plane / kubeadm-worker / platform-addons**: `kubeadm init`,
+  `kubeadm join`, and all `helm`/`kubectl` tasks are guarded with
+  `when: not ansible_check_mode` (and stat-based `when` guards for init/join),
+  so a dry run reports them as skipped. They require a real, reachable cluster.
 
 Run a full apply against a disposable VM to exercise the package, repository, and
 kernel-module tasks end to end.

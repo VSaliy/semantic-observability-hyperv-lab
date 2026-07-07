@@ -37,7 +37,7 @@ $config = Import-LabConfiguration -Path ./hyperv/config/lab-config.yaml
 
 Invoke-LabProvisioning `
   -Configuration $config `
-  -VhdRootPath 'D:\HyperV\VHDs' `
+  -VhdRootPath 'C:\HyperV\VHDs' `
   -CloudInitSourcePath ./hyperv/cloud-init
 ```
 

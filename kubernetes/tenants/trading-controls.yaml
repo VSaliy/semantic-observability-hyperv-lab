@@ -1,3 +1,6 @@
+# Illustrative tenant controls. The authoritative tenant provisioning path is
+# the Terraform tenant module (terraform/environments/lab). Do not apply this
+# file alongside Terraform, which manages the same resources for tenant-trading.
 apiVersion: v1
 kind: ResourceQuota
 metadata:

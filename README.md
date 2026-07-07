@@ -27,10 +27,10 @@ The implementation does **not** use an LLM to invent causes. Search results rema
 
 | Milestone | Status | Notes |
 | --- | --- | --- |
-| 0 Foundation | Implemented | Repository structure, ADRs, docs, validation scripts, CI skeleton, version catalog. |
+| 0 Foundation | Implemented | Repository structure, ADRs, docs, validation scripts, CI workflows, version catalog. |
 | 1 Runnable vertical slice | Implemented | Kafka, OpenSearch, deterministic embedding service, semantic indexer, query API, seed events, evaluation dataset, tenant isolation tests. |
 | 2 Hyper-V and Linux automation | Implemented | Hyper-V VM lifecycle module, cloud-init NoCloud seeding, and idempotent Ansible roles (baseline, containerd, kubeadm prerequisites, admin tools, time-sync validation). |
-| 3 Kubernetes platform | Foundation only | Namespaces, quotas, policies, storage, and Terraform tenant module. |
+| 3 Kubernetes platform | Implemented | kubeadm control-plane and worker roles, Cilium CNI, MetalLB, ingress-nginx, cert-manager, default local-path storage, and the tenant Terraform module applied for both lab tenants. |
 | 4 Core observability | Planned | OTel, Prometheus, Alertmanager, Grafana, Loki, Tempo, MinIO. |
 
 ## Profiles
@@ -92,9 +92,9 @@ curl -s http://localhost:8080/api/v1/search \
 1. Validate Hyper-V host prerequisites and load configuration with `hyperv/powershell/HyperVLab.psm1`.
 2. Provision switches and VMs from `hyperv/config/lab-config.yaml` via `Invoke-LabProvisioning`, attaching cloud-init NoCloud seeds.
 3. Apply the Linux baseline, containerd, and kubeadm prerequisites with the Ansible roles under `ansible/`.
-4. Progressively move from Docker Compose to kubeadm-based deployment in later milestones.
+4. Bootstrap the cluster with `ansible/playbooks/cluster.yml` (or `scripts/deployment/bootstrap-cluster.sh`): `kubeadm init`, worker join, Cilium CNI, MetalLB, ingress-nginx, cert-manager, local-path storage, then the tenant Terraform module.
 
-See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.md) for the full Milestone 2 workflow.
+See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.md) for the full Milestone 2 and Milestone 3 workflow.
 
 ## Security and tenant isolation
 
@@ -120,8 +120,17 @@ Milestone 2 automation is validated separately:
 # Hyper-V PowerShell module (pure functions, Hyper-V mocked)
 pwsh -c "Invoke-Pester -Path ./hyperv/tests"
 
-# Ansible roles and playbooks
-cd ansible && ansible-lint playbooks/site.yml playbooks/validate.yml
+# Ansible roles and playbooks (Milestone 2 and Milestone 3)
+cd ansible && ansible-lint playbooks/site.yml playbooks/validate.yml playbooks/cluster.yml
+```
+
+Milestone 3 cluster automation is applied against provisioned nodes with:
+
+```bash
+make cluster-up      # kubeadm init/join, Cilium, MetalLB, ingress, cert-manager, storage
+make tenant-apply    # apply the tenant Terraform module to the running cluster
+# or run the full end-to-end bootstrap:
+./scripts/deployment/bootstrap-cluster.sh
 ```
 
 ## Contribution guide
@@ -132,13 +141,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Java 21 is required locally for Maven builds; the default runner JDK may be older.
 - The Milestone 1 embedding service is deterministic and local, not semantically rich.
-- Milestone 2 automation (Hyper-V module, cloud-init, Ansible roles) is implemented and unit-tested, but a running Hyper-V host is required to provision guests; kubeadm, Keycloak, and the full observability stack remain later milestones.
+- Milestone 2 automation (Hyper-V module, cloud-init, Ansible roles) is implemented and unit-tested, but a running Hyper-V host is required to provision guests.
+- Milestone 3 cluster automation (kubeadm roles, Cilium, MetalLB, ingress-nginx, cert-manager, storage, tenant Terraform) is implemented and statically validated (ansible-lint, kubeval, `terraform validate`), but applying it requires the provisioned Linux nodes; Keycloak and the full observability stack remain later milestones.
 - Search ranking is deliberately transparent and heuristic, not production-tuned.
 
 ## Roadmap
 
-- Milestone 3: kubeadm cluster automation, Cilium, MetalLB, ingress, certificates, storage, and tenant Terraform application.
-- Milestone 4: full core observability stack and Kafka-connected collectors.
+- Milestone 4: full core observability stack (OTel, Prometheus, Alertmanager, Grafana, Loki, Tempo, MinIO) and Kafka-connected collectors.
 - Later: network observability, ITSM integrations, Keycloak, Istio, ClickHouse, deployment health gates, cost controls, and capstone incident workflows.
 
 ## Portfolio outcomes
