@@ -115,21 +115,21 @@ if ([string]::IsNullOrWhiteSpace($InstallIsoPath) -and $configuration['installIs
 
 # --- Stage 1: host readiness precheck --------------------------------------
 if (-not $SkipReadinessCheck) {
-  Write-LabStatus 'Stage 1/5: host readiness precheck...' -Level Step
+  Write-Status 'Stage 1/5: host readiness precheck...' -Level Step
   $readinessParameters = @{ VhdRootPath = $VhdRootPath; RequireYaml = $true }
   if (-not [string]::IsNullOrWhiteSpace($InstallIsoPath)) {
     $readinessParameters['InstallIsoPath'] = $InstallIsoPath
   }
   $readiness = Test-LabHostReadiness @readinessParameters
   if (-not $readiness.Passed) {
-    $readiness.Failures | ForEach-Object { Write-LabStatus $_ -Level Warning }
+    $readiness.Failures | ForEach-Object { Write-Status $_ -Level Warning }
     throw 'Host readiness precheck failed. Resolve the issues above or re-run with -SkipReadinessCheck.'
   }
-  Write-LabStatus 'Host readiness precheck passed.' -Level Success
+  Write-Status 'Host readiness precheck passed.' -Level Success
 }
 
 # --- Stage 2: Hyper-V provisioning + start ---------------------------------
-Write-LabStatus 'Stage 2/5: provisioning Hyper-V switches and VMs...' -Level Step
+Write-Status 'Stage 2/5: provisioning Hyper-V switches and VMs...' -Level Step
 $provisioningParameters = @{
   Configuration       = $configuration
   VhdRootPath         = $VhdRootPath
@@ -168,27 +168,27 @@ if ($nodeAddresses.Count -eq 0) {
 }
 
 # --- Stage 3: bridge to configuration (wait for SSH) -----------------------
-Write-LabStatus 'Stage 3/5: waiting for nodes to become reachable over SSH...' -Level Step
+Write-Status 'Stage 3/5: waiting for nodes to become reachable over SSH...' -Level Step
 Clear-LabSshKnownHost -HostName $nodeAddresses -Confirm:$false
 [void](Wait-LabNodeSsh -Address $nodeAddresses -TimeoutMinutes $SshWaitTimeoutMinutes)
-Write-LabStatus 'All nodes are reachable over SSH.' -Level Success
+Write-Status 'All nodes are reachable over SSH.' -Level Success
 
 # --- Stage 4: regenerate the Ansible inventory -----------------------------
-Write-LabStatus 'Stage 4/5: regenerating the Ansible inventory from lab config...' -Level Step
+Write-Status 'Stage 4/5: regenerating the Ansible inventory from lab config...' -Level Step
 $inventoryPath = Join-Path -Path $repoRoot -ChildPath 'ansible\inventories\lab\hosts.yml'
 $inventory = Get-LabAnsibleInventory -Configuration $configuration
 Set-Content -LiteralPath $inventoryPath -Value $inventory -Encoding utf8
-Write-LabStatus ("Inventory written to {0}." -f $inventoryPath) -Level Success
+Write-Status ("Inventory written to {0}." -f $inventoryPath) -Level Success
 
 # --- Stage 5: Linux + Kubernetes bootstrap ---------------------------------
 if ($SkipClusterBootstrap) {
-  Write-LabStatus 'Stage 5/5: skipped (-SkipClusterBootstrap).' -Level Step
-  Write-LabStatus 'Nodes are provisioned and reachable. Run the cluster bootstrap from a controller with ansible-playbook/kubectl/terraform:'
-  Write-LabStatus '  ./scripts/deployment/bootstrap-cluster.sh'
+  Write-Status 'Stage 5/5: skipped (-SkipClusterBootstrap).' -Level Step
+  Write-Status 'Nodes are provisioned and reachable. Run the cluster bootstrap from a controller with ansible-playbook/kubectl/terraform:'
+  Write-Status '  ./scripts/deployment/bootstrap-cluster.sh'
   return
 }
 
-Write-LabStatus 'Stage 5/5: bootstrapping node baseline, Kubernetes cluster, and tenants...' -Level Step
+Write-Status 'Stage 5/5: bootstrapping node baseline, Kubernetes cluster, and tenants...' -Level Step
 $bootstrapScriptRel = 'scripts/deployment/bootstrap-cluster.sh'
 
 if ($ClusterBootstrapEngine -eq 'wsl') {
@@ -197,7 +197,7 @@ if ($ClusterBootstrapEngine -eq 'wsl') {
   }
   $wslRepoRoot = ConvertTo-WslPath -Path $repoRoot
   $remoteCommand = "cd '$wslRepoRoot' && KUBECONFIG='$KubeconfigPath' bash '$bootstrapScriptRel'"
-  Write-LabStatus ("Running cluster bootstrap via WSL: {0}" -f $remoteCommand)
+  Write-Status ("Running cluster bootstrap via WSL: {0}" -f $remoteCommand)
   & wsl.exe -e bash -lc $remoteCommand
   if ($LASTEXITCODE -ne 0) { throw "Cluster bootstrap failed (WSL exit code $LASTEXITCODE)." }
 }
@@ -207,7 +207,7 @@ else {
     throw 'bash was not found on PATH. Use -ClusterBootstrapEngine wsl, or -SkipClusterBootstrap and run the bootstrap from the admin node.'
   }
   $bootstrapScript = Join-Path -Path $repoRoot -ChildPath 'scripts\deployment\bootstrap-cluster.sh'
-  Write-LabStatus ("Running cluster bootstrap via bash: {0}" -f $bootstrapScript)
+  Write-Status ("Running cluster bootstrap via bash: {0}" -f $bootstrapScript)
   $env:KUBECONFIG = $KubeconfigPath
   & $bash.Source $bootstrapScript
   if ($LASTEXITCODE -ne 0) { throw "Cluster bootstrap failed (bash exit code $LASTEXITCODE)." }

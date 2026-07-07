@@ -89,10 +89,37 @@ curl -s http://localhost:8080/api/v1/search \
 
 ## Hyper-V bootstrap path
 
+### One-touch provisioning (recommended)
+
+From an **elevated** PowerShell session on the Hyper-V host, a single command runs
+the whole flow: host readiness precheck -> provision switches/VMs + cloud-init/autoinstall
+seeds -> start VMs -> wait for SSH -> regenerate the Ansible inventory -> bootstrap the
+Kubernetes cluster, platform add-ons, and tenants:
+
+```powershell
+./scripts/bootstrap/Start-LabProvisioning.ps1 `
+  -VhdRootPath 'C:\HyperV\VHDs' `
+  -InstallIsoPath 'E:\ISO\ubuntu-24.04.3-live-server-amd64.iso' `
+  -Autoinstall -BuildAutoinstallIso
+```
+
+Useful switches: `-SkipClusterBootstrap` (stop after the VMs are up and reachable),
+`-Rebuild` (recreate VMs cleanly), `-DynamicMemory`, `-WhatIf`, and
+`-ClusterBootstrapEngine wsl|bash`. The script is idempotent and can be re-run to converge.
+
+Prerequisites for a hands-off run: the `powershell-yaml` module, `oscdimg.exe` (Windows ADK),
+a gitignored `.env` for autoinstall credentials (see [hyperv/README.md](hyperv/README.md)), and
+WSL/bash with `ansible-playbook`, `kubectl`, and `terraform` (plus a reachable kubeconfig) for
+the cluster bootstrap stage.
+
+### Manual stages
+
+If you prefer to run each stage yourself:
+
 1. Validate Hyper-V host prerequisites and load configuration with `hyperv/powershell/HyperVLab.psm1`.
 2. Provision switches and VMs from `hyperv/config/lab-config.yaml` via `Invoke-LabProvisioning`, attaching cloud-init NoCloud seeds.
-3. Apply the Linux baseline, containerd, and kubeadm prerequisites with the Ansible roles under `ansible/`.
-4. Bootstrap the cluster with `ansible/playbooks/cluster.yml` (or `scripts/deployment/bootstrap-cluster.sh`): `kubeadm init`, worker join, Cilium CNI, MetalLB, ingress-nginx, cert-manager, local-path storage, then the tenant Terraform module.
+3. Apply the Linux baseline, containerd, and kubeadm prerequisites with the Ansible roles under `ansible/` (`ansible-playbook playbooks/site.yml`).
+4. Bootstrap the cluster with `scripts/deployment/bootstrap-cluster.sh` (baseline -> `kubeadm init`, worker join, Cilium CNI, MetalLB, ingress-nginx, cert-manager, local-path storage, then the tenant Terraform module).
 
 See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.md) for the full Milestone 2 and Milestone 3 workflow.
 
@@ -129,8 +156,10 @@ Milestone 3 cluster automation is applied against provisioned nodes with:
 ```bash
 make cluster-up      # kubeadm init/join, Cilium, MetalLB, ingress, cert-manager, storage
 make tenant-apply    # apply the tenant Terraform module to the running cluster
-# or run the full end-to-end bootstrap:
+# or run the full end-to-end bootstrap (baseline -> cluster -> manifests -> tenants):
 ./scripts/deployment/bootstrap-cluster.sh
+# or, from the Hyper-V host, the whole lab in one touch (elevated PowerShell):
+make provision-all VHD_ROOT="C:\HyperV\VHDs" ISO="E:\ISO\ubuntu-24.04.3-live-server-amd64.iso"
 ```
 
 ## Contribution guide

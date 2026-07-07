@@ -280,6 +280,14 @@ function New-AutoinstallIso {
     return $OutputIsoPath
   }
 
+  # Reaching here means we are (re)building: either the target was absent or -Force was
+  # supplied (the reuse check above returns early otherwise). Remove any stale output ISO
+  # so engines that refuse to overwrite a non-empty target can repack cleanly - notably
+  # xorriso, which aborts with "-outdev media holds non-zero data" (wsl/docker engines).
+  if (Test-Path -LiteralPath $OutputIsoPath) {
+    Remove-Item -LiteralPath $OutputIsoPath -Force
+  }
+
   $workDir = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath ('autoinstall-iso-{0}' -f ([guid]::NewGuid()))
   New-Item -ItemType Directory -Path $workDir -Force | Out-Null
   $grubHostPath = Join-Path -Path $workDir -ChildPath 'grub.cfg'
@@ -443,6 +451,15 @@ function Update-GrubConfigFile {
 
   $content = Get-Content -LiteralPath $Path -Raw
   $updated = Add-AutoinstallKernelArgument -GrubConfiguration $content -KernelArguments $KernelArguments
+
+  # grub.cfg extracted from the (read-only) source ISO keeps its read-only attribute,
+  # which makes the in-place Set-Content fail with "Access to the path ... is denied".
+  # Clear it before rewriting so the injection works across all engines (wsl/docker/oscdimg).
+  $grubItem = Get-Item -LiteralPath $Path -Force
+  if ($grubItem.IsReadOnly) {
+    $grubItem.IsReadOnly = $false
+  }
+
   Set-Content -LiteralPath $Path -Value $updated -NoNewline:$false
   return $Path
 }

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Bootstrap the Milestone 3 Kubernetes platform end to end:
-#   1. kubeadm control plane + workers, Cilium CNI, and platform add-ons (Ansible).
-#   2. Declarative platform and security manifests (kubectl).
-#   3. Tenant provisioning (Terraform tenant module).
+#   1. Node baseline: containerd + kubeadm prerequisites + admin tools (Ansible site.yml).
+#   2. kubeadm control plane + workers, Cilium CNI, and platform add-ons (Ansible cluster.yml).
+#   3. Declarative platform and security manifests (kubectl).
+#   4. Tenant provisioning (Terraform tenant module).
 #
 # Prerequisites: the Milestone 2 nodes are provisioned and reachable, and the
 # ansible-playbook, kubectl, and terraform binaries are on PATH. Run from the
@@ -11,11 +12,16 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/ansible"
+INVENTORY_PATH="${INVENTORY_PATH:-${ANSIBLE_DIR}/inventories/lab/hosts.yml}"
 KUBECONFIG_PATH="${KUBECONFIG:-${HOME}/.kube/config}"
 TENANT_ENV="${REPO_ROOT}/terraform/environments/lab"
 
+echo "==> Applying node baseline (containerd, kubeadm prerequisites, admin tools)"
+ansible-playbook -i "${INVENTORY_PATH}" \
+  "${ANSIBLE_DIR}/playbooks/site.yml"
+
 echo "==> Bootstrapping kubeadm cluster, Cilium, and platform add-ons"
-ansible-playbook -i "${ANSIBLE_DIR}/inventories/lab/hosts.yml" \
+ansible-playbook -i "${INVENTORY_PATH}" \
   "${ANSIBLE_DIR}/playbooks/cluster.yml"
 
 echo "==> Reconciling declarative platform and security manifests"
