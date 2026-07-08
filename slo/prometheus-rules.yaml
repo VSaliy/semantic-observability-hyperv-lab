@@ -2,7 +2,7 @@ groups:
   - name: semantic-platform-slo
     rules:
       - record: semantic:telemetry_acceptance_ratio
-        expr: sum(rate(semantic_indexer_processed_events_total[5m])) / clamp_min(sum(rate(semantic_indexer_processed_events_total[5m]) + rate(semantic_indexer_dead_letter_events_total[5m])), 1)
+        expr: sum(rate(semantic_indexer_processed_events_total[5m])) / clamp_min(sum(rate(semantic_indexer_processed_events_total[5m]) + rate(semantic_indexer_dead_letter_events_total[5m])), 0.001)
       - alert: SemanticIndexingDelayHigh
         expr: histogram_quantile(0.99, sum(rate(semantic_indexer_processing_seconds_bucket[5m])) by (le)) > 120
         for: 10m

@@ -17,6 +17,11 @@ autoinstall:
   locale: en_US.UTF-8
   keyboard:
     layout: us
+  # Netplan for the INSTALLED system. Autoinstall (subiquity) configures the target's
+  # network from this key and disables cloud-init networking afterwards, so the NoCloud
+  # network-config alone does not reach the installed OS. Rendered by Get-AutoinstallUserData
+  # (eth0 = external/DHCP, eth1 = internal/static per-VM). Hyper-V synthetic NICs are eth0/eth1.
+__NETWORK_CONFIG__
   identity:
     realname: "${LAB_AUTOINSTALL_FULL_NAME}"
     hostname: ${LAB_VM_HOSTNAME}

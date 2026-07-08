@@ -135,6 +135,16 @@ def test_embedding_failure_uses_bounded_retries(
   assert producer.messages[0]["value"]["reason"] == "embedding retries exhausted"
 
 
+def test_embedding_failure_dead_letter_payload_is_redacted(
+  events: list[dict[str, Any]], validator: EventValidator
+) -> None:
+  processor, _, producer = build_processor(validator, FailingEmbedder(3))
+  processor.process_payload(events[1])
+  payload_json = json.dumps(producer.messages[0]["value"]["payload"])
+  assert "jdbc:postgresql://db.internal/trading" not in payload_json
+  assert "[REDACTED]" in payload_json
+
+
 def test_poison_messages_do_not_block_following_payloads(
   events: list[dict[str, Any]], validator: EventValidator
 ) -> None:

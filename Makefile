@@ -33,7 +33,7 @@ test: test-unit test-integration ## Run unit and integration tests
 test-unit: ## Run Python and Java unit tests
 	$(PYTHON) -m pip install -q -e './$(PIP_INDEXER)[dev]'
 	$(PYTHON) -m pytest $(PIP_INDEXER)/tests
-JAVA_HOME=$(JAVA21_HOME) PATH=$(JAVA21_HOME)/bin:$$PATH mvn -q -f $(QUERY_API)/pom.xml test
+	JAVA_HOME=$(JAVA21_HOME) PATH=$(JAVA21_HOME)/bin:$$PATH mvn -q -f $(QUERY_API)/pom.xml test
 
 test-integration: ## Run integration checks against Docker Compose stack
 	./scripts/validation/test-integration.sh
@@ -79,5 +79,4 @@ provision-all: ## One-touch: provision Hyper-V VMs, wait for SSH, then bootstrap
 	@command -v pwsh >/dev/null 2>&1 || { echo 'pwsh is required to run the one-touch provisioner'; exit 1; }
 	@if [ -z "$(VHD_ROOT)" ]; then echo 'Set VHD_ROOT, e.g. make provision-all VHD_ROOT="C:\\HyperV\\VHDs" [ISO=...]'; exit 1; fi
 	pwsh -NoLogo -NoProfile -File scripts/bootstrap/Start-LabProvisioning.ps1 -VhdRootPath "$(VHD_ROOT)" $(if $(ISO),-InstallIsoPath "$(ISO)" -Autoinstall -BuildAutoinstallIso,)
-
 

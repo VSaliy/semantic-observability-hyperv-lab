@@ -4,6 +4,7 @@ import com.example.observability.search.application.TenantSearchService;
 import com.example.observability.search.application.TenantSearchService.SearchExecution;
 import java.net.URI;
 import java.time.Duration;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -11,6 +12,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -60,7 +62,12 @@ public class SearchController {
     return query.replaceAll("[\\r\\n\\t]", " ").trim();
   }
 
-  @ExceptionHandler({IllegalArgumentException.class, MethodArgumentNotValidException.class})
+  @ExceptionHandler({
+      DateTimeParseException.class,
+      HttpMessageNotReadableException.class,
+      IllegalArgumentException.class,
+      MethodArgumentNotValidException.class
+  })
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   ProblemDetail invalidRequest(Exception exception) {
     ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());

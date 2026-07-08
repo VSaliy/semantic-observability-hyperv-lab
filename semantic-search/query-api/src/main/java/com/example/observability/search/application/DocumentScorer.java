@@ -80,6 +80,9 @@ public class DocumentScorer {
   }
 
   private boolean containsToken(String query, String value) {
+    if (query == null || query.isBlank() || value == null || value.isBlank()) {
+      return false;
+    }
     return query.toLowerCase(Locale.ROOT).contains(value.toLowerCase(Locale.ROOT));
   }
 

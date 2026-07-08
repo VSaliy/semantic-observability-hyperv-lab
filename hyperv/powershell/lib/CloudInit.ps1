@@ -238,7 +238,11 @@ function Get-AutoinstallUserData {
     [hashtable]$Values,
 
     [Parameter(Mandatory)]
-    [string]$Hostname
+    [string]$Hostname,
+
+    [string]$StaticIpCidr,
+
+    [string[]]$DnsServers = @('1.1.1.1', '9.9.9.9')
   )
 
   if (-not (Test-Path -LiteralPath $TemplatePath)) {
@@ -268,7 +272,33 @@ function Get-AutoinstallUserData {
   $keyLines = ($keys | ForEach-Object { '      - {0}' -f $_ }) -join "`n"
   $content = $content.Replace('__SSH_AUTHORIZED_KEYS__', $keyLines)
 
-  if ($content -match '\$\{[A-Z_]+\}' -or $content.Contains('__SSH_AUTHORIZED_KEYS__')) {
+  # Render the installed-system netplan (eth0 = external/DHCP, eth1 = internal/static).
+  # Applied by subiquity to the target because the NoCloud network-config does not reach
+  # the installed OS in the autoinstall flow. Empty when no static IP is supplied.
+  $networkBlock = ''
+  if (-not [string]::IsNullOrWhiteSpace($StaticIpCidr)) {
+    if ($StaticIpCidr -notmatch '^\d{1,3}(\.\d{1,3}){3}/\d{1,2}$') {
+      throw "StaticIpCidr must be in CIDR notation (for example '10.50.0.11/24'): $StaticIpCidr"
+    }
+    $dnsList = ($DnsServers | Where-Object { $_ }) -join ', '
+    $networkBlock = @"
+  network:
+    version: 2
+    ethernets:
+      eth0:
+        dhcp4: true
+        optional: true
+      eth1:
+        dhcp4: false
+        addresses:
+          - $StaticIpCidr
+        nameservers:
+          addresses: [$dnsList]
+"@.TrimEnd()
+  }
+  $content = $content.Replace('__NETWORK_CONFIG__', $networkBlock)
+
+  if ($content -match '\$\{[A-Z_]+\}' -or $content.Contains('__SSH_AUTHORIZED_KEYS__') -or $content.Contains('__NETWORK_CONFIG__')) {
     throw 'autoinstall template still contains unresolved placeholders.'
   }
 

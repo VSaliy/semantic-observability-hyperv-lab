@@ -140,6 +140,35 @@ function Invoke-LabProvisioning {
       else {
         Write-LabStatus ("Switch '{0}' already present; leaving it in place." -f $switch.Name)
       }
+
+      # An Internal switch exposes a host vNIC; give it the declared gateway IP so the host
+      # can reach the guests on the lab subnet (required for the SSH wait and Ansible). This
+      # is idempotent and runs on every provisioning pass, not only when the switch is created.
+      if ($switch.Type -eq 'Internal' -and -not [string]::IsNullOrWhiteSpace($switch.Gateway)) {
+        $prefixLength = 24
+        if (-not [string]::IsNullOrWhiteSpace($switch.Subnet) -and $switch.Subnet -match '/(\d{1,2})$') {
+          $prefixLength = [int]$Matches[1]
+        }
+        $hostAlias = 'vEthernet ({0})' -f $switch.Name
+        $hostVnic = $null
+        for ($attempt = 0; $attempt -lt 10 -and -not $hostVnic; $attempt++) {
+          $hostVnic = Get-NetAdapter -Name $hostAlias -ErrorAction SilentlyContinue
+          if (-not $hostVnic) { Start-Sleep -Milliseconds 500 }
+        }
+        if ($hostVnic) {
+          $hasGatewayIp = Get-NetIPAddress -InterfaceAlias $hostAlias -IPAddress $switch.Gateway -ErrorAction SilentlyContinue
+          if (-not $hasGatewayIp) {
+            New-NetIPAddress -InterfaceAlias $hostAlias -IPAddress $switch.Gateway -PrefixLength $prefixLength -ErrorAction Stop | Out-Null
+            Write-LabStatus ("Assigned host IP {0}/{1} to '{2}'." -f $switch.Gateway, $prefixLength, $hostAlias) -Level Success
+          }
+          else {
+            Write-LabStatus ("Host IP {0} already present on '{1}'." -f $switch.Gateway, $hostAlias)
+          }
+        }
+        else {
+          Write-LabStatus ("Host vNIC '{0}' did not appear; skipping host IP assignment (assign {1}/{2} manually if the SSH wait stalls)." -f $hostAlias, $switch.Gateway, $prefixLength) -Level Warning
+        }
+      }
     }
     catch {
       throw "Failed to ensure virtual switch '$($switch.Name)' ($($switch.Type)): $($_.Exception.Message)"
@@ -205,7 +234,7 @@ function Invoke-LabProvisioning {
       $seedDirectory = $null
       if ($Autoinstall) {
         Write-LabStatus ("{0}: rendering autoinstall seed..." -f $label)
-        $userData = Get-AutoinstallUserData -TemplatePath $AutoinstallTemplatePath -Values $autoinstallValues -Hostname $vm.Hostname
+        $userData = Get-AutoinstallUserData -TemplatePath $AutoinstallTemplatePath -Values $autoinstallValues -Hostname $vm.Hostname -StaticIpCidr $vm.IpAddress -DnsServers $DnsServers
         $seedDirectory = New-CloudInitSeedStaging -VmName $vm.Name -UserDataContent $userData -OutputRootPath $CloudInitStagingPath -Hostname $vm.Hostname -NetworkConfig $networkConfig -Confirm:$false
       }
       elseif (-not [string]::IsNullOrWhiteSpace($CloudInitSourcePath) -and $vm.CloudInit -and $oscdimgAvailable) {

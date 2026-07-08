@@ -12,10 +12,11 @@ class EmbeddingProvider(Protocol):
 
 class HttpEmbeddingProvider:
   def __init__(self, url: str, timeout_seconds: float) -> None:
-    self._client = httpx.Client(base_url=url, timeout=timeout_seconds)
+    self._url = url
+    self._client = httpx.Client(timeout=timeout_seconds)
 
   def embed(self, text: str) -> list[float]:
-    response = self._client.post("", json={"text": text})
+    response = self._client.post(self._url, json={"text": text})
     response.raise_for_status()
     payload = response.json()
     return [float(value) for value in payload["vector"]]

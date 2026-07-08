@@ -57,7 +57,4 @@ jobs:
       - run: terraform -chdir=terraform/environments/lab init -backend=false -input=false
       - run: terraform -chdir=terraform/environments/lab validate
       - uses: azure/setup-kubectl@v4
-      - uses: instrumenta/kubeval-action@master
-        with:
-          files: kubernetes
-          ignore_missing_schemas: true
+      - run: docker run --rm -v "$PWD:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -ignore-missing-schemas kubernetes

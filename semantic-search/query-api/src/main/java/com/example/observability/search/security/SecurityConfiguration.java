@@ -1,6 +1,7 @@
 package com.example.observability.search.security;
 
 import com.example.observability.search.configuration.QueryApiProperties;
+import java.nio.charset.StandardCharsets;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,7 +32,7 @@ public class SecurityConfiguration {
   @Bean
   JwtDecoder jwtDecoder(QueryApiProperties properties) {
     NimbusJwtDecoder decoder = NimbusJwtDecoder
-        .withSecretKey(new SecretKeySpec(properties.jwtSecret().getBytes(), "HmacSHA256"))
+        .withSecretKey(new SecretKeySpec(properties.jwtSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256"))
         .build();
     OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
         JwtValidators.createDefault(),

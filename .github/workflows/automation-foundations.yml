@@ -31,4 +31,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker run --rm -v "$PWD:/work" -w /work prom/prometheus:v2.54.1 promtool test rules slo/prometheus-rules.test.yaml
+      - run: docker run --rm --entrypoint promtool -v "$PWD:/work" -w /work prom/prometheus:v2.54.1 test rules slo/prometheus-rules.test.yaml

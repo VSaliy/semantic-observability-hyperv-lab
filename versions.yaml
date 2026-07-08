@@ -20,7 +20,7 @@ messaging:
   kafka: "7.7.1"
 
 search:
-  opensearch: "2.17.1"
+  opensearch: "2.17.0"
   postgresql: "16.4"
   keycloak: "26.0.5"
   embedding_model:

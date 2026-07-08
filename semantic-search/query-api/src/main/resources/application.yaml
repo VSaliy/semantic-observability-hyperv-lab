@@ -9,6 +9,10 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
 query:
   top-k-limit: 20
   default-time-range: PT2H

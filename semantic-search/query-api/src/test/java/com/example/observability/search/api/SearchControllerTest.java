@@ -99,4 +99,22 @@ class SearchControllerTest {
                 """))
         .andExpect(status().isBadRequest());
   }
+
+  @Test
+  void rejectsMalformedTimeRangeAsBadRequest() throws Exception {
+    mockMvc.perform(post("/api/v1/search")
+            .with(jwt().jwt(jwt -> jwt.claim("tenant", "trading").issuer("http://localhost:8080/dev-issuer")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "query": "slow requests",
+                  "environment": "production",
+                  "timeRange": "2h",
+                  "topK": 5,
+                  "mode": "HYBRID"
+                }
+                """))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.title").value("Invalid search request"));
+  }
 }

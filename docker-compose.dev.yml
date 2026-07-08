@@ -35,7 +35,7 @@ services:
        kafka-topics --bootstrap-server kafka:19092 --create --if-not-exists --topic semantic.dead-letter --partitions 3 --replication-factor 1'
 
   opensearch:
-    image: opensearchproject/opensearch:2.17.1
+    image: opensearchproject/opensearch:2.17.0
     container_name: semantic-lab-opensearch
     environment:
       discovery.type: single-node

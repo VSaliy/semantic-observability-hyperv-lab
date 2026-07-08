@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 from semantic_indexer.documents import build_document
 from semantic_indexer.embeddings import EmbeddingProvider
-from semantic_indexer.metrics import DEAD_LETTER_EVENTS, EMBEDDING_RETRIES, PROCESSED_EVENTS
+from semantic_indexer.metrics import DEAD_LETTER_EVENTS, EMBEDDING_RETRIES, PROCESSED_EVENTS, PROCESSING_LATENCY
 from semantic_indexer.redaction import redact_value
 from semantic_indexer.validation import EventValidationError, EventValidator
 
@@ -47,6 +47,10 @@ class EventProcessor:
     self._max_embedding_retries = max_embedding_retries
 
   def process_payload(self, payload: dict[str, Any]) -> ProcessorResult:
+    with PROCESSING_LATENCY.time():
+      return self._process_payload(payload)
+
+  def _process_payload(self, payload: dict[str, Any]) -> ProcessorResult:
     try:
       event = self._validator.parse(payload)
     except (EventValidationError, ValueError) as exc:
@@ -56,7 +60,9 @@ class EventProcessor:
     event.attributes = redact_value(event.attributes)
     vector = self._embed_with_retries(event)
     if vector is None:
-      self._publish_dead_letter(payload, "embedding retries exhausted")
+      redacted_payload = dict(payload)
+      redacted_payload["attributes"] = event.attributes
+      self._publish_dead_letter(redacted_payload, "embedding retries exhausted")
       return ProcessorResult(dead_lettered=1)
 
     document = build_document(event, vector)

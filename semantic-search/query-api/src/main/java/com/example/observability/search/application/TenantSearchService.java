@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
@@ -23,6 +24,7 @@ public class TenantSearchService {
   private final Clock clock;
   private final MeterRegistry meterRegistry;
 
+  @Autowired
   public TenantSearchService(QueryApiProperties properties, EmbeddingClient embeddingClient,
       SearchGateway searchGateway, DocumentScorer scorer, MeterRegistry meterRegistry) {
     this(properties, embeddingClient, searchGateway, scorer, meterRegistry, Clock.systemUTC());
