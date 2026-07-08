@@ -1,0 +1,11 @@
+---
+- name: Reload kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ containerd_required_modules }}"
+
+- name: Restart containerd
+  ansible.builtin.service:
+    name: containerd
+    state: restarted

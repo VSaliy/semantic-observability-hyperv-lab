@@ -1,0 +1,34 @@
+name: automation-foundations
+
+on:
+  pull_request:
+
+jobs:
+  powershell:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install modules
+        shell: pwsh
+        run: |
+          Install-Module Pester -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -SkipPublisherCheck
+      - name: Analyze PowerShell
+        shell: pwsh
+        run: Invoke-ScriptAnalyzer -Path hyperv/powershell -Recurse -Severity Warning,Error
+      - name: Run Pester
+        shell: pwsh
+        run: Invoke-Pester hyperv/tests -Output Detailed
+
+  ansible:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install ansible ansible-lint
+      - run: ansible-lint ansible/playbooks/site.yml ansible/playbooks/validate.yml ansible/playbooks/cluster.yml
+
+  promtool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker run --rm --entrypoint promtool -v "$PWD:/work" -w /work prom/prometheus:v2.54.1 test rules slo/prometheus-rules.test.yaml

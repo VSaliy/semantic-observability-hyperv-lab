@@ -1,0 +1,60 @@
+---
+- name: Configure Kubernetes prerequisites
+  when: kubernetes_prerequisites_enabled | bool
+  block:
+    - name: Disable swap at runtime
+      ansible.builtin.command: swapoff -a
+      changed_when: false
+      when:
+        - not kubernetes_swap_enabled | bool
+        - not ansible_check_mode
+
+    - name: Comment out swap entries in /etc/fstab
+      ansible.builtin.replace:
+        path: /etc/fstab
+        regexp: '^(\s*[^#\n]+\s+swap\s+.*)$'
+        replace: '# \1'
+      when: not kubernetes_swap_enabled | bool
+
+    - name: Ensure the apt keyring directory exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Add the Kubernetes apt signing key
+      ansible.builtin.get_url:
+        url: "{{ kubernetes_apt_key_url }}"
+        dest: "{{ kubernetes_apt_keyring }}"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Add the Kubernetes apt repository
+      ansible.builtin.apt_repository:
+        repo: "{{ kubernetes_apt_repo }}"
+        filename: kubernetes
+        state: present
+
+    - name: Install pinned Kubernetes packages
+      ansible.builtin.apt:
+        name: "{{ item }}={{ kubernetes_version }}-*"
+        state: present
+        update_cache: true
+        allow_downgrade: true
+      loop: "{{ kubernetes_packages }}"
+
+    - name: Hold Kubernetes packages at the pinned version
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop: "{{ kubernetes_packages }}"
+
+    - name: Ensure kubelet is enabled and running
+      ansible.builtin.service:
+        name: kubelet
+        state: started
+        enabled: true
+      when: not ansible_check_mode

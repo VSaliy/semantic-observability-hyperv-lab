@@ -1,0 +1,14 @@
+rule_files:
+  - prometheus-rules.yaml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_processing_seconds_bucket{le="120"}'
+        values: '0 1 2 3 4 5'
+      - series: 'semantic_indexer_processing_seconds_bucket{le="+Inf"}'
+        values: '0 1 2 3 4 5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SemanticIndexingDelayHigh
+        exp_alerts: []

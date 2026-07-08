@@ -1,0 +1,25 @@
+---
+# Lab-wide settings shared by every guest and every role.
+# Pinned versions are kept in sync with the root versions.yaml catalogue.
+
+lab_timezone: "UTC"
+
+# Kubernetes requires swap to be disabled on every node.
+kubernetes_swap_enabled: false
+
+# Kernel modules required by containerd and the CNI.
+containerd_required_modules:
+  - overlay
+  - br_netfilter
+
+# sysctl values required for Kubernetes pod networking.
+kubernetes_sysctl:
+  net.bridge.bridge-nf-call-iptables: 1
+  net.bridge.bridge-nf-call-ip6tables: 1
+  net.ipv4.ip_forward: 1
+
+# Pinned component versions (mirror of /versions.yaml).
+kubernetes_version: "1.31.1"
+kubernetes_minor_version: "1.31"
+containerd_version: "1.7.22"
+helm_version: "3.16.2"

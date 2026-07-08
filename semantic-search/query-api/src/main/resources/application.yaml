@@ -1,0 +1,28 @@
+server:
+  port: 8080
+spring:
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+query:
+  top-k-limit: 20
+  default-time-range: PT2H
+  jwt-secret: ${QUERY_API_JWT_SECRET:local-dev-secret-local-dev-secret}
+  jwt-issuer: ${QUERY_API_ISSUER:http://localhost:8080/dev-issuer}
+  required-tenant-claim: tenant
+  valid-evidence-hosts:
+    - grafana.example
+    - kafka.example
+    - opensearch.example
+  embedding-url: ${EMBEDDING_URL:http://embedding-service:8090/embed}
+  opensearch-url: ${OPENSEARCH_URL:http://opensearch:9200}
+  opensearch-index-alias: observability-documents
