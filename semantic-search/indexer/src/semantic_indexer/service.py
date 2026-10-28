@@ -8,7 +8,12 @@ from typing import Any, Protocol
 
 from semantic_indexer.documents import build_document
 from semantic_indexer.embeddings import EmbeddingProvider
-from semantic_indexer.metrics import DEAD_LETTER_EVENTS, EMBEDDING_RETRIES, PROCESSED_EVENTS, PROCESSING_LATENCY
+from semantic_indexer.metrics import (
+  DEAD_LETTER_EVENTS,
+  EMBEDDING_RETRIES,
+  PROCESSED_EVENTS,
+  PROCESSING_LATENCY,
+)
 from semantic_indexer.redaction import redact_value
 from semantic_indexer.validation import EventValidationError, EventValidator
 

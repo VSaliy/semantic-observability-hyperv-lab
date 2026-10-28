@@ -17,4 +17,5 @@ public record QueryApiProperties(
     List<String> validEvidenceHosts,
     @NotBlank String embeddingUrl,
     @NotBlank String opensearchUrl,
-    @NotBlank String opensearchIndexAlias) {}
+    @NotBlank String opensearchIndexAlias,
+    String referenceTime) {}

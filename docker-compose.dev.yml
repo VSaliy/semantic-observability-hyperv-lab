@@ -39,7 +39,9 @@ services:
     container_name: semantic-lab-opensearch
     environment:
       discovery.type: single-node
-      plugins.security.disabled: "true"
+      # Read by the image entrypoint; it skips the demo-security installer and passes
+      # -Eplugins.security.disabled=true. Local development only.
+      DISABLE_SECURITY_PLUGIN: "true"
       OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
     ports:
       - "9200:9200"
@@ -110,5 +112,8 @@ services:
       EMBEDDING_URL: http://embedding-service:8090/embed
       QUERY_API_JWT_SECRET: local-dev-secret-local-dev-secret
       QUERY_API_ISSUER: http://localhost:8080/dev-issuer
+      # Pins "now" to the end of the seed-fixture window (2026-07-01 09:30-11:30Z) so relative
+      # time ranges such as PT2H match the deterministic fixtures and the evaluation dataset.
+      QUERY_API_REFERENCE_TIME: "2026-07-01T11:30:00Z"
     ports:
       - "8080:8080"

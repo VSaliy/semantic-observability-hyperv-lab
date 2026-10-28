@@ -87,6 +87,12 @@ curl -s http://localhost:8080/api/v1/search \
       }' | jq
 ```
 
+The seed fixtures carry fixed timestamps (2026-07-01, 09:50-10:15 UTC) so document IDs and the
+evaluation dataset stay deterministic. In `docker-compose.dev.yml` the query API therefore pins its
+clock with `QUERY_API_REFERENCE_TIME=2026-07-01T11:30:00Z`, so relative windows such as `PT2H`
+resolve to 09:30-11:30 UTC on that day. Leave the variable unset outside local development to use the
+system clock.
+
 ## Hyper-V bootstrap path
 
 ### One-touch provisioning (recommended)
@@ -170,6 +176,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - Java 21 is required locally for Maven builds; the default runner JDK may be older.
 - The Milestone 1 embedding service is deterministic and local, not semantically rich.
+- The local compose stack searches relative to a pinned reference time (`QUERY_API_REFERENCE_TIME`), so events published with current timestamps fall outside its default windows.
 - Milestone 2 automation (Hyper-V module, cloud-init, Ansible roles) is implemented and unit-tested, but a running Hyper-V host is required to provision guests.
 - Milestone 3 cluster automation (kubeadm roles, Cilium, MetalLB, ingress-nginx, cert-manager, storage, tenant Terraform) is implemented and statically validated (ansible-lint, kubeval, `terraform validate`), but applying it requires the provisioned Linux nodes; Keycloak and the full observability stack remain later milestones.
 - Search ranking is deliberately transparent and heuristic, not production-tuned.

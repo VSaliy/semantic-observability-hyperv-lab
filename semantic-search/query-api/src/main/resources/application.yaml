@@ -26,3 +26,4 @@ query:
   embedding-url: ${EMBEDDING_URL:http://embedding-service:8090/embed}
   opensearch-url: ${OPENSEARCH_URL:http://opensearch:9200}
   opensearch-index-alias: observability-documents
+  reference-time: ${QUERY_API_REFERENCE_TIME:}

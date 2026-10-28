@@ -50,11 +50,11 @@ dev-reset: ## Remove local Milestone 1 state and restart cleanly
 
 seed-events: ## Publish deterministic seed events to Kafka
 	$(PYTHON) -m pip install -q -e ./$(PIP_INDEXER)
-PYTHONPATH=$(PIP_INDEXER)/src $(PYTHON) scripts/bootstrap/seed-events.py
+	PYTHONPATH=$(PIP_INDEXER)/src $(PYTHON) scripts/bootstrap/seed-events.py
 
 evaluate-search: ## Evaluate search quality against the deterministic dataset
 	$(PYTHON) -m pip install -q -e ./$(PIP_INDEXER)
-PYTHONPATH=$(PIP_INDEXER)/src $(PYTHON) semantic-search/evaluation/evaluate_search.py
+	PYTHONPATH=$(PIP_INDEXER)/src $(PYTHON) semantic-search/evaluation/evaluate_search.py
 
 terraform-validate: ## Format and validate Terraform where available
 	@if command -v terraform >/dev/null 2>&1; then terraform -chdir=terraform fmt -check -recursive && terraform -chdir=terraform/environments/lab init -backend=false -input=false >/dev/null && terraform -chdir=terraform/environments/lab validate; else echo 'terraform not installed; skipping'; fi
