@@ -60,7 +60,7 @@ terraform-validate: ## Format and validate Terraform where available
 	@if command -v terraform >/dev/null 2>&1; then terraform -chdir=terraform fmt -check -recursive && terraform -chdir=terraform/environments/lab init -backend=false -input=false >/dev/null && terraform -chdir=terraform/environments/lab validate; else echo 'terraform not installed; skipping'; fi
 
 ansible-lint: ## Run Ansible linting
-	ansible-lint ansible/playbooks/site.yml ansible/playbooks/validate.yml ansible/playbooks/cluster.yml
+	cd ansible && ansible-lint playbooks/site.yml playbooks/validate.yml playbooks/cluster.yml
 
 yamllint: ## Run YAML linting
 	yamllint .

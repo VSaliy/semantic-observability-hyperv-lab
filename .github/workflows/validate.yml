@@ -50,11 +50,19 @@ jobs:
 
   shell-and-security:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks scans every commit in the pull request, not only the tip.
+          fetch-depth: 0
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: find scripts -name '*.sh' -print0 | xargs -0 -r shellcheck
       - uses: zricethezav/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   terraform-and-kubernetes:
     runs-on: ubuntu-latest

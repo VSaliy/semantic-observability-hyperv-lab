@@ -13,7 +13,7 @@ containerd_required_modules:
   - br_netfilter
 
 # sysctl values required for Kubernetes pod networking.
-kubernetes_sysctl:
+containerd_sysctl:
   net.bridge.bridge-nf-call-iptables: 1
   net.bridge.bridge-nf-call-ip6tables: 1
   net.ipv4.ip_forward: 1

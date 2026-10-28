@@ -25,7 +25,7 @@
         sysctl_set: true
         state: present
         reload: true
-      loop: "{{ kubernetes_sysctl | dict2items }}"
+      loop: "{{ containerd_sysctl | dict2items }}"
 
     - name: Install containerd
       ansible.builtin.apt:
