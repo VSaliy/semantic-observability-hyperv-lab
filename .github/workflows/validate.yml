@@ -39,6 +39,14 @@ jobs:
           distribution: temurin
           java-version: '21'
       - run: mvn -q -f semantic-search/query-api/pom.xml test
+      # The isolation test skips itself without Docker; in CI a skip must fail the job.
+      - name: Require tenant isolation test to run against OpenSearch
+        run: |
+          report=semantic-search/query-api/target/surefire-reports/TEST-com.example.observability.search.api.TenantIsolationIntegrationTest.xml
+          if ! grep -q 'skipped="0"' "$report"; then
+            echo "::error::TenantIsolationIntegrationTest did not run; check the Docker/Testcontainers setup"
+            exit 1
+          fi
 
   shell-and-security:
     runs-on: ubuntu-latest
