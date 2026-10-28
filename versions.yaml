@@ -30,7 +30,7 @@ search:
 
 applications:
   java: "21"
-  spring_boot: "3.3.2"
+  spring_boot: "3.5.16"
   python: "3.12"
 
 optional:

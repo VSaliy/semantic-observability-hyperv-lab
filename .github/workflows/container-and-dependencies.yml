@@ -33,3 +33,6 @@ jobs:
           scan-ref: .
           format: table
           severity: CRITICAL,HIGH
+          # Fail on fixable HIGH/CRITICAL findings; unfixed ones are reported only.
+          exit-code: '1'
+          ignore-unfixed: true
