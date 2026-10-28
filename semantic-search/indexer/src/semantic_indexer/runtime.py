@@ -8,8 +8,8 @@ from kafka import KafkaConsumer, KafkaProducer  # type: ignore[attr-defined]
 from prometheus_client import start_http_server
 
 from semantic_indexer.config import IndexerSettings
-from semantic_indexer.embeddings import HttpEmbeddingProvider
-from semantic_indexer.opensearch_io import OpenSearchWriter
+from semantic_indexer.embeddings import CachingEmbeddingProvider, HttpEmbeddingProvider
+from semantic_indexer.opensearch_io import OpenSearchDocumentStore
 from semantic_indexer.service import EventProcessor
 from semantic_indexer.validation import EventValidator
 
@@ -37,11 +37,10 @@ class KafkaEventRuntime:
     )
     self._processor = EventProcessor(
       validator=validator,
-      embedding_provider=HttpEmbeddingProvider(
-        settings.embedding_url,
-        settings.embedding_timeout_seconds
+      embedding_provider=CachingEmbeddingProvider(
+        HttpEmbeddingProvider(settings.embedding_url, settings.embedding_timeout_seconds)
       ),
-      writer=OpenSearchWriter(settings.opensearch_url, settings.opensearch_index_alias),
+      store=OpenSearchDocumentStore(settings.opensearch_url, settings.opensearch_index_alias),
       dead_letter_producer=JsonDeadLetterProducer(producer),
       dead_letter_topic=settings.kafka_dead_letter_topic,
       max_embedding_retries=settings.max_embedding_retries

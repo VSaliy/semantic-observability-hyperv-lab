@@ -57,7 +57,8 @@ import org.testcontainers.utility.DockerImageName;
 class TenantIsolationIntegrationTest {
   private static final String UNIQUE_PHRASE = "zebra-route-withdrawal";
   private static final String MARKET_DATA_DOCUMENT_ID = "market-data-network";
-  private static final String INDEX = "observability-documents-v1";
+  private static final String INDEX = "observability-documents-v2";
+  private static final String ALIAS = "observability-documents";
   private static final Path INDEX_TEMPLATE = Path.of("../schemas/opensearch/index-template.json");
   private static final HttpClient HTTP = HttpClient.newHttpClient();
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -87,8 +88,10 @@ class TenantIsolationIntegrationTest {
 
   @BeforeAll
   static void seedIndex() throws Exception {
-    send("PUT", "/_index_template/observability-documents-v1-template", Files.readString(INDEX_TEMPLATE));
+    send("PUT", "/_index_template/" + INDEX + "-template", Files.readString(INDEX_TEMPLATE));
     send("PUT", "/" + INDEX, "{}");
+    // The query API reads through the alias, which init-opensearch.sh manages in deployments.
+    send("PUT", "/" + INDEX + "/_alias/" + ALIAS, "{}");
     StringBuilder bulk = new StringBuilder();
     for (Map<String, Object> document : List.of(
         document("trading-incident", "trading", "incident", "2026-07-01T10:10:00Z",

@@ -179,6 +179,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 - Java 21 is required locally for Maven builds; the default runner JDK may be older.
 - The Milestone 1 embedding service is deterministic and local, not semantically rich.
 - The deterministic embedding is a SHA-256 hash of the text and carries no meaning. With the default similarity floor, `SEMANTIC` mode usually returns nothing and `HYBRID` behaves like `KEYWORD`; recalibrate `query.min-semantic-similarity` when the pinned embedding model replaces it.
+- Indexed documents are aggregates (log templates, traces, incidents, changes, alerts) that keep a compact record per contributing event; see the [semantic indexing limitations](docs/architecture/semantic-indexing.md#limitations) for growth and time-window caveats.
 - The local compose stack searches relative to a pinned reference time (`QUERY_API_REFERENCE_TIME`), so events published with current timestamps fall outside its default windows.
 - Milestone 2 automation (Hyper-V module, cloud-init, Ansible roles) is implemented and unit-tested, but a running Hyper-V host is required to provision guests.
 - Milestone 3 cluster automation (kubeadm roles, Cilium, MetalLB, ingress-nginx, cert-manager, storage, tenant Terraform) is implemented and statically validated (ansible-lint, kubeval, `terraform validate`), but applying it requires the provisioned Linux nodes; Keycloak and the full observability stack remain later milestones.

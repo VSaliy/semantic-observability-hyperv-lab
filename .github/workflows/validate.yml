@@ -30,7 +30,10 @@ jobs:
       - run: pip install -e semantic-search/indexer[dev] && pip check
       - run: python -m ruff check semantic-search/indexer/src semantic-search/indexer/tests scripts
       - run: python -m mypy semantic-search/indexer/src
-      - run: pytest semantic-search/indexer/tests
+      # The OpenSearch integration tests skip without Docker locally; in CI that must fail.
+      - run: pytest -rs semantic-search/indexer/tests
+        env:
+          REQUIRE_DOCKER_TESTS: '1'
 
   java:
     runs-on: ubuntu-latest

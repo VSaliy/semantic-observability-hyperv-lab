@@ -6,14 +6,22 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from semantic_indexer.documents import build_document
+from semantic_indexer.documents import (
+  aggregate_document,
+  build_contribution,
+  deterministic_document_id,
+  document_type_for,
+)
 from semantic_indexer.embeddings import EmbeddingProvider
 from semantic_indexer.metrics import (
   DEAD_LETTER_EVENTS,
+  DUPLICATE_EVENTS,
   EMBEDDING_RETRIES,
   PROCESSED_EVENTS,
   PROCESSING_LATENCY,
+  WRITE_CONFLICTS,
 )
+from semantic_indexer.models import SemanticDocument
 from semantic_indexer.redaction import redact_value
 from semantic_indexer.validation import EventValidationError, EventValidator
 
@@ -24,13 +32,24 @@ class DeadLetterProducer(Protocol):
   def send(self, topic: str, value: dict[str, Any], key: str | None = None) -> None: ...
 
 
-class DocumentWriter(Protocol):
-  def write(self, document: Any) -> None: ...
+@dataclass(frozen=True)
+class StoredDocument:
+  document: SemanticDocument
+  version: object
+
+
+class DocumentStore(Protocol):
+  def get(self, document_id: str) -> StoredDocument | None: ...
+
+  def put(self, document: SemanticDocument, expected: StoredDocument | None) -> bool:
+    """Write if the stored version still matches `expected`; return False on a conflict."""
+    ...
 
 
 @dataclass
 class ProcessorResult:
   indexed: int = 0
+  duplicates: int = 0
   dead_lettered: int = 0
 
 
@@ -39,17 +58,19 @@ class EventProcessor:
     self,
     validator: EventValidator,
     embedding_provider: EmbeddingProvider,
-    writer: DocumentWriter,
+    store: DocumentStore,
     dead_letter_producer: DeadLetterProducer,
     dead_letter_topic: str,
-    max_embedding_retries: int
+    max_embedding_retries: int,
+    max_write_attempts: int = 3
   ) -> None:
     self._validator = validator
     self._embedding_provider = embedding_provider
-    self._writer = writer
+    self._store = store
     self._dead_letter_producer = dead_letter_producer
     self._dead_letter_topic = dead_letter_topic
     self._max_embedding_retries = max_embedding_retries
+    self._max_write_attempts = max_write_attempts
 
   def process_payload(self, payload: dict[str, Any]) -> ProcessorResult:
     with PROCESSING_LATENCY.time():
@@ -63,28 +84,45 @@ class EventProcessor:
       return ProcessorResult(dead_lettered=1)
 
     event.attributes = redact_value(event.attributes)
-    vector = self._embed_with_retries(event)
-    if vector is None:
-      redacted_payload = dict(payload)
-      redacted_payload["attributes"] = event.attributes
-      self._publish_dead_letter(redacted_payload, "embedding retries exhausted")
-      return ProcessorResult(dead_lettered=1)
+    redacted_payload = dict(payload)
+    redacted_payload["attributes"] = event.attributes
+    contribution = build_contribution(event)
+    document_type = document_type_for(event)
+    document_id = deterministic_document_id(event, document_type)
 
-    document = build_document(event, vector)
-    self._writer.write(document)
-    PROCESSED_EVENTS.inc()
-    return ProcessorResult(indexed=1)
+    for _ in range(self._max_write_attempts):
+      stored = self._store.get(document_id)
+      existing = stored.document.contributions if stored else []
+      if any(item.event_id == event.eventId for item in existing):
+        DUPLICATE_EVENTS.inc()
+        return ProcessorResult(duplicates=1)
+      document = aggregate_document(
+        document_id, document_type, event.tenantId, event.environment, [*existing, contribution]
+      )
+      vector = self._embed_with_retries(document.semantic_text)
+      if vector is None:
+        self._publish_dead_letter(redacted_payload, "embedding retries exhausted")
+        return ProcessorResult(dead_lettered=1)
+      document.semantic_vector = vector
+      if self._store.put(document, stored):
+        PROCESSED_EVENTS.inc()
+        return ProcessorResult(indexed=1)
+      WRITE_CONFLICTS.inc()
+      LOGGER.info("write conflict on %s, retrying", document_id)
+
+    self._publish_dead_letter(redacted_payload, "write conflicts exhausted")
+    return ProcessorResult(dead_lettered=1)
 
   def process_messages(self, payloads: Iterable[dict[str, Any]]) -> ProcessorResult:
     total = ProcessorResult()
     for payload in payloads:
       result = self.process_payload(payload)
       total.indexed += result.indexed
+      total.duplicates += result.duplicates
       total.dead_lettered += result.dead_lettered
     return total
 
-  def _embed_with_retries(self, event: Any) -> list[float] | None:
-    semantic_text = build_document(event, [0.0] * 16).semantic_text
+  def _embed_with_retries(self, semantic_text: str) -> list[float] | None:
     for attempt in range(1, self._max_embedding_retries + 1):
       try:
         return self._embedding_provider.embed(semantic_text)

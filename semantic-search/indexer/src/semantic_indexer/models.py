@@ -58,22 +58,64 @@ class OperationalEvent(BaseModel):
     return value
 
 
+class Contribution(BaseModel):
+  """The projection of one operational event that an aggregate document is rebuilt from."""
+
+  event_id: str
+  event_type: str
+  timestamp: datetime
+  summary: str
+  severity: str
+  status: str | None = None
+  service_name: str
+  service_namespace: str
+  service_version: str
+  change_id: str | None = None
+  trace_id: str | None = None
+  incident_id: str | None = None
+  alert_name: str | None = None
+  template: str | None = None
+  exception_type: str | None = None
+  cause: str | None = None
+  resolution: str | None = None
+  change_summary: str | None = None
+  critical_path: list[str] = Field(default_factory=list)
+  symptoms: list[str] = Field(default_factory=list)
+  services: list[str] = Field(default_factory=list)
+  evidence: list[EvidenceReference]
+
+
 class SemanticDocument(BaseModel):
   document_id: str
   document_type: str
   tenant_id: str
   environment: str
   timestamp: datetime
+  first_seen: datetime
+  last_seen: datetime
   service_name: str
   service_namespace: str
   service_version: str
   severity: str
+  status: str | None = None
   change_id: str | None = None
   event_id: str
+  event_ids: list[str] = Field(default_factory=list)
+  occurrences: int = 1
   trace_id: str | None = None
   incident_id: str | None = None
+  alert_name: str | None = None
+  template: str | None = None
+  exception_type: str | None = None
+  cause: str | None = None
+  resolution: str | None = None
+  change_summary: str | None = None
+  services: list[str] = Field(default_factory=list)
+  symptoms: list[str] = Field(default_factory=list)
+  critical_path: list[str] = Field(default_factory=list)
   topology_entities: list[str] = Field(default_factory=list)
   summary: str
   semantic_text: str
   source_references: list[EvidenceReference]
-  semantic_vector: list[float]
+  contributions: list[Contribution] = Field(default_factory=list)
+  semantic_vector: list[float] = Field(default_factory=list)

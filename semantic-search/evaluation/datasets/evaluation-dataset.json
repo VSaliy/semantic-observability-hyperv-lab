@@ -5,7 +5,7 @@
     "environment": "production",
     "query": "Why are production trade requests intermittently failing after the latest change?",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["877a7fbdd72e83fe2b0b1813", "c5e3f9ebd42b985d32185584", "b376030be1d73b4f29a488b1", "3afa92ee85d17a2decb36ef3", "fc84b7897bffcade4d5ab0cc"],
+    "expectedDocumentIds": ["6b8271d4f5059dc34658e9d9", "ebbfda13cd45e48b0576d4c8", "aea71dac4b1d98e5afce7fc9", "547a2443c4cd02ab15375e29", "405eb5bcc3ea4dccec5b124a"],
     "tags": ["change", "incident", "trade-api"]
   },
   {
@@ -14,7 +14,7 @@
     "environment": "production",
     "query": "Find database pool exhaustion incidents.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["c5e3f9ebd42b985d32185584", "3afa92ee85d17a2decb36ef3"],
+    "expectedDocumentIds": ["ebbfda13cd45e48b0576d4c8", "547a2443c4cd02ab15375e29"],
     "tags": ["database", "pool-exhaustion"]
   },
   {
@@ -32,7 +32,7 @@
     "environment": "production",
     "query": "Why are Kafka messages not being processed?",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["5d95ecb8908c0ff4547c5c26"],
+    "expectedDocumentIds": ["a05238c0e36a19393ca4d4cb"],
     "tags": ["kafka", "consumer-lag"]
   },
   {
@@ -41,7 +41,7 @@
     "environment": "production",
     "query": "Find incidents similar to this downstream timeout.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["c5e3f9ebd42b985d32185584", "b376030be1d73b4f29a488b1"],
+    "expectedDocumentIds": ["ebbfda13cd45e48b0576d4c8", "aea71dac4b1d98e5afce7fc9", "e2447ad185287f99879de0d7", "7524bf8be6196c226bc4ef4e"],
     "tags": ["incident", "timeout"]
   },
   {
@@ -50,7 +50,7 @@
     "environment": "production",
     "query": "Show deployments followed by elevated error rates.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["877a7fbdd72e83fe2b0b1813", "d7c5093e6c0373a167648bf1", "3afa92ee85d17a2decb36ef3"],
+    "expectedDocumentIds": ["6b8271d4f5059dc34658e9d9", "e5e3771811f510e416182691", "547a2443c4cd02ab15375e29"],
     "tags": ["deployment", "alert"]
   },
   {
@@ -59,7 +59,7 @@
     "environment": "production",
     "query": "Find cases where pods were healthy but customers saw failures.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["b376030be1d73b4f29a488b1", "c5e3f9ebd42b985d32185584"],
+    "expectedDocumentIds": ["aea71dac4b1d98e5afce7fc9", "ebbfda13cd45e48b0576d4c8"],
     "tags": ["trace", "customer-impact"]
   },
   {
@@ -68,7 +68,7 @@
     "environment": "production",
     "query": "Which runbook restores the previous pool configuration?",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["fc84b7897bffcade4d5ab0cc"],
+    "expectedDocumentIds": ["405eb5bcc3ea4dccec5b124a"],
     "tags": ["runbook", "remediation"]
   },
   {
@@ -77,7 +77,7 @@
     "environment": "production",
     "query": "What changed in CHG-0184?",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["877a7fbdd72e83fe2b0b1813", "c5e3f9ebd42b985d32185584"],
+    "expectedDocumentIds": ["6b8271d4f5059dc34658e9d9", "ebbfda13cd45e48b0576d4c8"],
     "tags": ["change", "deployment"]
   },
   {
@@ -86,7 +86,7 @@
     "environment": "production",
     "query": "Show trade API 503 alerts after the latest deployment.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["d7c5093e6c0373a167648bf1", "877a7fbdd72e83fe2b0b1813"],
+    "expectedDocumentIds": ["e5e3771811f510e416182691", "6b8271d4f5059dc34658e9d9"],
     "tags": ["alerts", "trade-api"]
   },
   {
@@ -95,7 +95,7 @@
     "environment": "production",
     "query": "Trace the slow request path through the services.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["b376030be1d73b4f29a488b1"],
+    "expectedDocumentIds": ["aea71dac4b1d98e5afce7fc9"],
     "tags": ["trace", "critical-path"]
   },
   {
@@ -104,7 +104,7 @@
     "environment": "production",
     "query": "Show database connection acquisition timeouts.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["3afa92ee85d17a2decb36ef3"],
+    "expectedDocumentIds": ["547a2443c4cd02ab15375e29"],
     "tags": ["logs", "database"]
   },
   {
@@ -113,7 +113,7 @@
     "environment": "production",
     "query": "Which incident linked trade failures to database pool exhaustion?",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["c5e3f9ebd42b985d32185584"],
+    "expectedDocumentIds": ["ebbfda13cd45e48b0576d4c8"],
     "tags": ["incident", "database"]
   },
   {
@@ -122,7 +122,7 @@
     "environment": "production",
     "query": "Show retry amplification symptoms after risk-service deployment.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["5d95ecb8908c0ff4547c5c26", "b376030be1d73b4f29a488b1"],
+    "expectedDocumentIds": ["a05238c0e36a19393ca4d4cb", "aea71dac4b1d98e5afce7fc9", "858a7ad2a96919625643a2ac"],
     "tags": ["retry", "kafka"]
   },
   {
@@ -131,7 +131,34 @@
     "environment": "production",
     "query": "Find evidence linked to Grafana, Loki, Tempo, and Kafka for the trade failure incident.",
     "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
-    "expectedDocumentIds": ["3afa92ee85d17a2decb36ef3", "b376030be1d73b4f29a488b1", "5d95ecb8908c0ff4547c5c26", "d7c5093e6c0373a167648bf1", "c5e3f9ebd42b985d32185584"],
+    "expectedDocumentIds": ["547a2443c4cd02ab15375e29", "aea71dac4b1d98e5afce7fc9", "a05238c0e36a19393ca4d4cb", "e5e3771811f510e416182691", "ebbfda13cd45e48b0576d4c8"],
     "tags": ["evidence", "grafana", "kafka"]
+  },
+  {
+    "id": "q-016",
+    "tenantId": "trading",
+    "environment": "production",
+    "query": "Which alerts fired for risk-pool connection saturation?",
+    "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
+    "expectedDocumentIds": ["9da195650f7a4a25faeaf2b8"],
+    "tags": ["alert", "database"]
+  },
+  {
+    "id": "q-017",
+    "tenantId": "trading",
+    "environment": "production",
+    "query": "Show pricing-service downstream timeouts to reference-data-service.",
+    "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
+    "expectedDocumentIds": ["e2447ad185287f99879de0d7", "7524bf8be6196c226bc4ef4e"],
+    "tags": ["timeout", "downstream", "pricing"]
+  },
+  {
+    "id": "q-018",
+    "tenantId": "trading",
+    "environment": "production",
+    "query": "How was incident INC-0042 resolved?",
+    "timeRange": {"from": "2026-07-01T09:30:00Z", "to": "2026-07-01T11:30:00Z"},
+    "expectedDocumentIds": ["ebbfda13cd45e48b0576d4c8", "405eb5bcc3ea4dccec5b124a"],
+    "tags": ["incident", "resolution"]
   }
 ]
