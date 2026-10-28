@@ -25,7 +25,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install -e semantic-search/indexer[dev]
+      # Test against the locked runtime versions the image ships, then add dev tools.
+      - run: pip install --require-hashes -r semantic-search/indexer/requirements.txt
+      - run: pip install -e semantic-search/indexer[dev] && pip check
       - run: python -m ruff check semantic-search/indexer/src semantic-search/indexer/tests scripts
       - run: python -m mypy semantic-search/indexer/src
       - run: pytest semantic-search/indexer/tests

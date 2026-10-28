@@ -31,6 +31,7 @@ validate: ## Run available validation checks
 test: test-unit test-integration ## Run unit and integration tests
 
 test-unit: ## Run Python and Java unit tests
+	$(PYTHON) -m pip install -q --require-hashes -r $(PIP_INDEXER)/requirements.txt
 	$(PYTHON) -m pip install -q -e './$(PIP_INDEXER)[dev]'
 	$(PYTHON) -m pytest $(PIP_INDEXER)/tests
 	JAVA_HOME=$(JAVA21_HOME) PATH=$(JAVA21_HOME)/bin:$$PATH mvn -q -f $(QUERY_API)/pom.xml test
@@ -47,6 +48,11 @@ dev-down: ## Stop the local Milestone 1 stack
 dev-reset: ## Remove local Milestone 1 state and restart cleanly
 	$(COMPOSE) down -v --remove-orphans
 	$(COMPOSE) up -d --build
+
+lock-indexer: ## Regenerate the indexer's hash-pinned runtime lock (requirements.txt) from pyproject.toml
+	$(PYTHON) -m pip install -q pip-tools==7.5.1
+	cd $(PIP_INDEXER) && $(PYTHON) -m piptools compile --quiet --strip-extras --generate-hashes \
+		--no-emit-index-url --output-file=requirements.txt pyproject.toml
 
 seed-events: ## Publish deterministic seed events to Kafka
 	$(PYTHON) -m pip install -q -e ./$(PIP_INDEXER)
