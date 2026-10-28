@@ -22,4 +22,8 @@ public class OpenSearchConnectionProperties {
   public String embeddingUrl() {
     return properties.embeddingUrl();
   }
+
+  public double minSemanticSimilarity() {
+    return properties.minSemanticSimilarity();
+  }
 }

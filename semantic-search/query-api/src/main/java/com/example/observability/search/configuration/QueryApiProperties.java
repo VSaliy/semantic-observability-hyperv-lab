@@ -1,5 +1,7 @@
 package com.example.observability.search.configuration;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
@@ -18,4 +20,5 @@ public record QueryApiProperties(
     @NotBlank String embeddingUrl,
     @NotBlank String opensearchUrl,
     @NotBlank String opensearchIndexAlias,
-    String referenceTime) {}
+    String referenceTime,
+    @DecimalMin("-1.0") @DecimalMax("1.0") double minSemanticSimilarity) {}

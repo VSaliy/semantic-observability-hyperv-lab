@@ -27,3 +27,5 @@ query:
   opensearch-url: ${OPENSEARCH_URL:http://opensearch:9200}
   opensearch-index-alias: observability-documents
   reference-time: ${QUERY_API_REFERENCE_TIME:}
+  # Cosine-similarity floor for semantic candidates. Calibrate per embedding model.
+  min-semantic-similarity: ${QUERY_API_MIN_SEMANTIC_SIMILARITY:0.5}

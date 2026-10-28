@@ -64,9 +64,12 @@ public class OpenSearchGateway implements SearchGateway {
 
   private String buildSemanticQuery(SearchCriteria criteria, List<Float> embedding, int limit) {
     String vector = embedding.stream().map(String::valueOf).collect(Collectors.joining(","));
+    // knn_score with cosinesimil scores 1 + cosine similarity, so the floor is shifted by one.
+    double minScore = 1.0 + properties.minSemanticSimilarity();
     return """
         {
           "size": %d,
+          "min_score": %s,
           "query": {
             "script_score": {
               "query": {
@@ -90,7 +93,7 @@ public class OpenSearchGateway implements SearchGateway {
             }
           }
         }
-        """.formatted(limit, json(criteria.tenantId()), json(criteria.environment()), json(criteria.from().toString()), json(criteria.to().toString()), vector);
+        """.formatted(limit, String.valueOf(minScore), json(criteria.tenantId()), json(criteria.environment()), json(criteria.from().toString()), json(criteria.to().toString()), vector);
   }
 
   private List<SearchCandidate> execute(String queryJson, String source) {
