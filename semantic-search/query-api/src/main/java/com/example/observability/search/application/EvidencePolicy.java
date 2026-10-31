@@ -2,6 +2,8 @@ package com.example.observability.search.application;
 
 import com.example.observability.search.configuration.QueryApiProperties;
 import com.example.observability.search.domain.EvidenceLink;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
@@ -16,18 +18,22 @@ import org.springframework.stereotype.Component;
 @Component
 public class EvidencePolicy {
   private final Set<String> validHosts;
+  private final Counter dropped;
 
   @Autowired
-  public EvidencePolicy(QueryApiProperties properties) {
-    this(properties.validEvidenceHosts());
+  public EvidencePolicy(QueryApiProperties properties, MeterRegistry meterRegistry) {
+    this(properties.validEvidenceHosts(), meterRegistry);
   }
 
-  EvidencePolicy(List<String> validHosts) {
+  EvidencePolicy(List<String> validHosts, MeterRegistry meterRegistry) {
     this.validHosts = Set.copyOf(validHosts);
+    this.dropped = Counter.builder("query_api_evidence_links_dropped_total").register(meterRegistry);
   }
 
   public List<EvidenceLink> allowed(List<EvidenceLink> links) {
-    return links.stream().filter(this::isAllowed).toList();
+    List<EvidenceLink> kept = links.stream().filter(this::isAllowed).toList();
+    dropped.increment(links.size() - kept.size());
+    return kept;
   }
 
   boolean isAllowed(EvidenceLink link) {

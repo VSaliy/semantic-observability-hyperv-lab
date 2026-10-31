@@ -11,6 +11,14 @@ groups:
           runbook_url: https://grafana.example/docs/runbooks/semantic-indexing-delay
         annotations:
           summary: Semantic indexing delay breached the SLO.
+      - alert: SemanticIndexerDeadLetterRateHigh
+        expr: sum(rate(semantic_indexer_dead_letter_events_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          runbook_url: https://grafana.example/docs/runbooks/semantic-dead-letters
+        annotations:
+          summary: Events are being dead-lettered faster than 0.1 per second; inspect semantic.dead-letter for a bad producer or poison input.
       - alert: HybridSearchApiLatencyHigh
         expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{uri="/api/v1/search"}[5m])) by (le)) > 2
         for: 10m

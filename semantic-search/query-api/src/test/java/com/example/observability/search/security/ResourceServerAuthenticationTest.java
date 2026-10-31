@@ -63,8 +63,11 @@ class ResourceServerAuthenticationTest {
   @MockitoBean
   private TenantSearchService tenantSearchService;
 
+  private static final String AUDIENCE = "semantic-search-api";
+
   @DynamicPropertySource
   static void jwks(DynamicPropertyRegistry registry) {
+    registry.add("spring.security.oauth2.resourceserver.jwt.audiences", () -> AUDIENCE);
     registry.add("spring.security.oauth2.resourceserver.jwt.jwk-set-uri",
         () -> "http://127.0.0.1:" + JWKS_SERVER.getAddress().getPort() + "/jwks");
   }
@@ -87,7 +90,17 @@ class ResourceServerAuthenticationTest {
     when(tenantSearchService.search(eq("slow requests"), eq("production"), any(), eq(5), eq(SearchMode.HYBRID), any()))
         .thenReturn(new SearchExecution("qry-0001", criteria,
             List.of(new ScoredResult("doc-1", "incident", 0.9, List.of("semantic similarity"), "text", List.of()))));
-    search(TestTokens.rs256(SIGNING_KEY, "trading")).andExpect(status().isOk());
+    search(TestTokens.rs256(SIGNING_KEY, "trading", AUDIENCE)).andExpect(status().isOk());
+  }
+
+  @Test
+  void tokenForAnotherAudienceIsRejected() throws Exception {
+    search(TestTokens.rs256(SIGNING_KEY, "trading", "some-other-service")).andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void tokenWithoutAnAudienceIsRejected() throws Exception {
+    search(TestTokens.rs256(SIGNING_KEY, "trading", null)).andExpect(status().isUnauthorized());
   }
 
   private ResultActions search(String token) throws Exception {

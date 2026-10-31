@@ -92,7 +92,7 @@ evaluation dataset stay deterministic. In `docker-compose.dev.yml` the query API
 clock with `QUERY_API_REFERENCE_TIME=2026-07-01T11:30:00Z`, so relative windows such as `PT2H`
 resolve to 09:30-11:30 UTC on that day. Leave the variable unset outside local development to use the
 system clock.
-Both the pinned clock and the HS256 development login are active only with `SPRING_PROFILES_ACTIVE=dev`.
+Both the pinned clock and the HS256 development login are active only with `SPRING_PROFILES_ACTIVE=dev`, and the login additionally needs `QUERY_API_ALLOW_DEV_AUTH=true` (the dev compose file sets both). Outside `dev` the API needs `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri` plus `spring.security.oauth2.resourceserver.jwt.audiences`, and refuses to start without them.
 
 ## Hyper-V bootstrap path
 
