@@ -62,6 +62,24 @@ def test_allowlisted_evidence_url_is_accepted(
   validator.parse(with_url(event, "https://grafana.example/d/abc?x=1"))
 
 
+def test_per_tenant_evidence_allowlist_restricts_hosts_by_tenant(
+  event: dict[str, Any],
+) -> None:
+  tenant_validator = EventValidator(
+    str(SCHEMA_PATH),
+    ALLOWED,
+    {"trading": ALLOWED, "market-data": ["grafana.example", "opensearch.example"]},
+  )
+  trading_event = dict(with_url(event, "https://kafka.example/topics/order.events"))
+  trading_event["tenantId"] = "trading"
+  tenant_validator.parse(trading_event)
+
+  market_data_event = dict(trading_event)
+  market_data_event["tenantId"] = "market-data"
+  with pytest.raises(EventValidationError):
+    tenant_validator.parse(market_data_event)
+
+
 def test_validation_failure_dead_letter_is_redacted(
   validator: EventValidator, event: dict[str, Any]
 ) -> None:
