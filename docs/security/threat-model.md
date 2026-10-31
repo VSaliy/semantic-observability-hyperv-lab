@@ -96,15 +96,22 @@ and the credentials and tokens that gate access. Anything marked *future work* i
 - **Mitigations:** attribute values whose key contains `password`, `secret`, `token`,
   `authorization`, `connection` or `cookie` are replaced before indexing, embedding and
   every dead letter, including events that fail validation (`semantic_indexer/redaction.py`,
-  `semantic_indexer/service.py`). The embedding input is the redacted aggregate text. Messages that
-  are not JSON objects are dead-lettered as a size, SHA-256 and origin only, never their bytes.
+  `semantic_indexer/service.py`). Value patterns are also scanned in the event `summary` and in every
+  string attribute value: private-key blocks, JWTs, `Bearer` tokens, AWS access key IDs, GitHub
+  tokens, e-mail addresses and `password=`/`token:`-style assignments. The embedding input is the
+  redacted aggregate text. Messages that are not JSON objects are dead-lettered as a size, SHA-256
+  and origin only, never their bytes.
 - **Tests:** `test_redacted_values_never_reach_opensearch`,
+  `test_sensitive_value_patterns_are_redacted`, `test_ordinary_text_is_unchanged`,
+  `test_summary_and_attributes_are_redacted_before_index_and_embedding`,
+  `test_dead_letter_summary_is_redacted`,
   `test_embedding_failure_dead_letter_payload_is_redacted`,
   `test_validation_failure_dead_letter_is_redacted`,
   `test_undecodable_message_is_dead_lettered_without_content_and_committed`.
-- **Gaps (future work):** redaction is key-name based. Secrets or personal data inside free-text
-  fields or under innocuous keys are not detected; add value-pattern scanners, schema-level
-  classification and a retention policy.
+- **Gaps (future work):** pattern scanning is best effort: names, addresses, card numbers and
+  secrets without a recognisable shape are not detected, and evidence URLs, `service`
+  fields and identifiers are not scanned. Add schema-level data classification and a
+  retention policy.
 
 ### 6. Forged or replayed JWTs
 
