@@ -5,6 +5,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 import time
 import urllib.request
 from datetime import datetime
@@ -15,7 +16,7 @@ API_URL = os.environ.get("SEARCH_API_URL", "http://localhost:8080/api/v1/search"
 
 
 def get_token() -> str:
-  return subprocess.check_output(["./scripts/bootstrap/generate-dev-jwt.py"], text=True).strip()
+  return subprocess.check_output([sys.executable, "scripts/bootstrap/generate-dev-jwt.py"], text=True).strip()
 
 
 def precision_at_k(results: list[str], expected: set[str], k: int) -> float:
