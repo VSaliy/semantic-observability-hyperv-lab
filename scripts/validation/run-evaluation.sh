@@ -5,7 +5,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$repo_root"
 
 compose=(docker compose -f docker-compose.dev.yml)
-expected_documents=${EXPECTED_DOCUMENTS:-16}
+expected_documents=${EXPECTED_DOCUMENTS:-21}
 
 "${compose[@]}" up -d --build
 cleanup() {
