@@ -1,6 +1,6 @@
 # ADR-0009 Pinned embedding model rollout
 
-- Status: Proposed (decision needed before any code is written)
+- Status: Deferred (proposal only; no learned model of any kind is adopted until this is reviewed)
 - Date: 2026-10-31
 
 ## Context
@@ -12,6 +12,10 @@
 - `versions.yaml` already pins `sentence-transformers/all-MiniLM-L6-v2` at revision `c9745ed1d9f207416be6d2e6f8de32d1f16199bf`, but nothing uses it.
 
 Current wiring: the indexer calls the embedding service over HTTP (`HttpEmbeddingProvider`) on the aggregate `semantic_text`; the query API calls the same service for the query text. The index mapping `semantic_vector` is `knn_vector`, dimension 16, `cosinesimil`, nmslib (`semantic-search/schemas/opensearch/index-template.json`). The alias `observability-documents` points at `observability-documents-v2`.
+
+## Scope note
+
+The project owner decided to avoid any LLM or learned embedding model for now. This ADR is kept as a proposal for later review. Until then the deterministic provider stays, the similarity floor stays at 0.5, and ranking work is limited to lexical and keyword improvements that need no model.
 
 ## Proposal
 
