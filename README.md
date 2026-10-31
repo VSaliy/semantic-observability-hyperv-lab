@@ -92,6 +92,7 @@ evaluation dataset stay deterministic. In `docker-compose.dev.yml` the query API
 clock with `QUERY_API_REFERENCE_TIME=2026-07-01T11:30:00Z`, so relative windows such as `PT2H`
 resolve to 09:30-11:30 UTC on that day. Leave the variable unset outside local development to use the
 system clock.
+Both the pinned clock and the HS256 development login are active only with `SPRING_PROFILES_ACTIVE=dev`.
 
 ## Hyper-V bootstrap path
 
@@ -138,6 +139,9 @@ See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.
 - `TenantIsolationIntegrationTest` proves isolation against a real OpenSearch container (Testcontainers) in all three search modes; it is skipped when no Docker-compatible runtime is available.
 - Evidence URLs are validated against an allowlist.
 - Sensitive fields are redacted before indexing or embedding.
+- The shared-secret HS256 login exists only under the `dev` Spring profile (set by `docker-compose.dev.yml`). Any other profile must configure `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri`, otherwise the query API refuses to start.
+- Containers run as non-root (UID/GID 10001), and the indexer commits Kafka offsets only after an event is handled.
+- See the [threat model](docs/security/threat-model.md) for threats, mitigations and remaining gaps.
 
 ## Test commands
 

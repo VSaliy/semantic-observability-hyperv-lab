@@ -1,0 +1,8 @@
+# Local development only. Enabled with SPRING_PROFILES_ACTIVE=dev (see docker-compose.dev.yml).
+# The shared HS256 secret below is public: anyone can mint tokens with it. Never enable this profile
+# in a shared or production environment; use spring.security.oauth2.resourceserver.jwt.* instead.
+query:
+  jwt-secret: ${QUERY_API_JWT_SECRET:local-dev-secret-local-dev-secret}
+  jwt-issuer: ${QUERY_API_ISSUER:http://localhost:8080/dev-issuer}
+  # Pins "now" so the deterministic seed fixtures fall inside relative search windows.
+  reference-time: ${QUERY_API_REFERENCE_TIME:}

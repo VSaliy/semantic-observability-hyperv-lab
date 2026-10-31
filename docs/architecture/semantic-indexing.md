@@ -46,6 +46,10 @@ separate even when their wording overlaps.
 - Embeddings are computed from the rebuilt `semantic_text` through an in-process LRU cache, so repeated
   occurrences of an unchanged aggregate cost no embedding calls.
 
+## Delivery guarantee: at-least-once, commit after processing
+
+The indexer runs with `enable_auto_commit=False`. After `EventProcessor.process_payload` returns, which covers indexed, duplicate and dead-lettered events (the dead letter is flushed first), it commits `offset + 1` for that message's partition. If processing raises, for example because OpenSearch is unreachable, nothing is committed and the process stops, so the message is redelivered after a restart. A crash between processing and commit also causes redelivery. The idempotent aggregates above make that safe.
+
 ## Index versions
 
 `init-opensearch.sh` installs the `observability-documents-v2` template, creates the index and moves the
