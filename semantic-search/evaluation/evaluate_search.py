@@ -16,8 +16,10 @@ TENANT_DOCUMENTS = Path(__file__).with_name("datasets").joinpath("tenant-documen
 API_URL = os.environ.get("SEARCH_API_URL", "http://localhost:8080/api/v1/search")
 
 
-def get_token() -> str:
-  return subprocess.check_output([sys.executable, "scripts/bootstrap/generate-dev-jwt.py"], text=True).strip()
+def get_token(tenant: str) -> str:
+  return subprocess.check_output(
+    [sys.executable, "scripts/bootstrap/generate-dev-jwt.py", tenant], text=True
+  ).strip()
 
 
 def precision_at_k(results: list[str], expected: set[str], k: int) -> float:
@@ -64,11 +66,16 @@ def duration_from_range(start: str, end: str) -> str:
 
 def main() -> None:
   dataset = json.loads(DATASET.read_text(encoding="utf-8"))
-  token = get_token()
+  tokens: dict[str, str] = {}
   tenant_documents: dict[str, list[str]] = json.loads(TENANT_DOCUMENTS.read_text(encoding="utf-8"))
   p5 = r10 = mrr = ndcg = latency = 0.0
   leakage = 0
+  ranked = 0
+  negatives = 0
   for entry in dataset:
+    if entry["tenantId"] not in tokens:
+      tokens[entry["tenantId"]] = get_token(entry["tenantId"])
+    token = tokens[entry["tenantId"]]
     start = time.perf_counter()
     request = urllib.request.Request(
       API_URL,
@@ -99,17 +106,23 @@ def main() -> None:
     }
     leakage += sum(1 for result in results if result in foreign)
     expected = set(entry["expectedDocumentIds"])
+    if not expected:
+      negatives += 1
+      continue
+    ranked += 1
     p5 += precision_at_k(results, expected, 5)
     r10 += recall_at_k(results, expected, 10)
     mrr += reciprocal_rank(results, expected)
     ndcg += ndcg_at_k(results, expected, 10)
-  total = len(dataset)
+  total = ranked
   print(json.dumps({
     "precisionAt5": round(p5 / total, 3),
     "recallAt10": round(r10 / total, 3),
     "mrr": round(mrr / total, 3),
     "ndcgAt10": round(ndcg / total, 3),
-    "averageLatencySeconds": round(latency / total, 3),
+    "averageLatencySeconds": round(latency / len(dataset), 3),
+    "rankedQuestions": ranked,
+    "negativeControls": negatives,
     "crossTenantLeakageCount": leakage
   }, indent=2))
   if leakage:

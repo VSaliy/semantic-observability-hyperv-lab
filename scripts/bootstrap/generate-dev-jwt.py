@@ -5,13 +5,15 @@ import base64
 import hashlib
 import hmac
 import json
+import sys
 import time
 
 SECRET = b"local-dev-secret-local-dev-secret"
+TENANT = sys.argv[1] if len(sys.argv) > 1 else "trading"
 header = {"alg": "HS256", "typ": "JWT"}
 payload = {
   "sub": "dev-user",
-  "tenant": "trading",
+  "tenant": TENANT,
   "iss": "http://localhost:8080/dev-issuer",
   "iat": int(time.time()),
   "exp": int(time.time()) + 3600
