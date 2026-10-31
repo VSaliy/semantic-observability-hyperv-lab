@@ -44,4 +44,9 @@ public class SecurityConfiguration {
         .oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))
         .build();
   }
+
+  @Bean
+  JtiReplayValidator jtiReplayValidator(Environment environment) {
+    return new JtiReplayValidator(!environment.acceptsProfiles(Profiles.of("dev")));
+  }
 }

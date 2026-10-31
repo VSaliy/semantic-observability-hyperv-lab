@@ -69,6 +69,18 @@ class DevProfileAuthenticationTest {
         .andExpect(status().isUnauthorized());
   }
 
+  @Test
+  void replayedDevTokenWithSameJtiIsRejected() throws Exception {
+    SearchCriteria criteria = new SearchCriteria("slow requests", "trading", "production",
+        Instant.parse("2026-07-01T08:00:00Z"), Instant.parse("2026-07-01T10:00:00Z"), 5, SearchMode.HYBRID);
+    when(tenantSearchService.search(eq("slow requests"), eq("production"), any(), eq(5), eq(SearchMode.HYBRID), any()))
+        .thenReturn(new SearchExecution("qry-0001", criteria,
+            List.of(new ScoredResult("doc-1", "incident", 0.9, List.of("semantic similarity"), "text", List.of()))));
+    String token = TestTokens.hs256(DEV_SECRET, DEV_ISSUER, "trading");
+    search(token).andExpect(status().isOk());
+    search(token).andExpect(status().isUnauthorized());
+  }
+
   private ResultActions search(String token) throws Exception {
     return mockMvc.perform(post("/api/v1/search")
         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)

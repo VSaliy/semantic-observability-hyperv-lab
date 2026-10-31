@@ -123,15 +123,20 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   accepted by a JWKS decoder. Without any decoder, or without
   `spring.security.oauth2.resourceserver.jwt.audiences`, the application refuses to start
   (`security/SecurityConfiguration.java`); Spring then rejects tokens whose `aud` does not contain the
-  configured audience, so a token minted for another service by the same issuer is refused. The
-  tenant claim is mandatory
+  configured audience, so a token minted for another service by the same issuer is refused. Every
+  token outside `dev` must also carry a non-blank `jti` claim, and `security/JtiReplayValidator.java`
+  records each seen `(issuer, jti)` pair in a bounded expiring cache until `exp` (also wired into the
+  `dev` decoder when a `jti` is present), so replaying a bearer token on the same API instance is
+  rejected with 401. The tenant claim is mandatory
   (`application/TenantSearchService.java`).
 - **Tests:** `ResourceServerAuthenticationTest` (an HS256 token signed with the dev secret gets 401, a
   token from the configured JWKS and audience gets 200, a token for another audience or without one
-  gets 401), `StartupWithoutJwtConfigurationTest` (also: no audience configured fails startup),
-  `DevProfileAuthenticationTest` (wrong secret, wrong issuer, no token all give 401).
-- **Gaps (future work):** a short-lifetime and revocation policy, and
-  `jti`-based replay detection. A stolen bearer token is valid until `exp`. Keycloak and TLS
+  gets 401, a replayed `jti` or missing `jti` gets 401), `JtiReplayValidatorTest` (replay rejected
+  before `exp`, evicted after `exp`, scoped by issuer, bounded cache size),
+  `StartupWithoutJwtConfigurationTest` (also: no audience configured fails startup),
+  `DevProfileAuthenticationTest` (wrong secret, wrong issuer, no token, replayed `jti` all give 401).
+- **Gaps (future work):** the `jti` replay cache is in-memory per API instance, so a multi-replica
+  deployment needs a shared store; add a short-lifetime and revocation policy once Keycloak and TLS
   termination arrive in a later milestone.
 
 ### 7. Abuse of the dev authentication shortcut
