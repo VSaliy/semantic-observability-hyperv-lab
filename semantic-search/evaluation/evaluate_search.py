@@ -115,17 +115,28 @@ def main() -> None:
     mrr += reciprocal_rank(results, expected)
     ndcg += ndcg_at_k(results, expected, 10)
   total = ranked
-  print(json.dumps({
+  metrics = {
     "precisionAt5": round(p5 / total, 3),
     "recallAt10": round(r10 / total, 3),
     "mrr": round(mrr / total, 3),
-    "ndcgAt10": round(ndcg / total, 3),
+    "ndcgAt10": round(ndcg / total, 3)
+  }
+  print(json.dumps({
+    **metrics,
     "averageLatencySeconds": round(latency / len(dataset), 3),
     "rankedQuestions": ranked,
     "negativeControls": negatives,
     "crossTenantLeakageCount": leakage
   }, indent=2))
-  if leakage:
+  failed = leakage > 0
+  if len(sys.argv) == 3 and sys.argv[1] == "--check-baseline":
+    baseline = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+    tolerance = baseline["tolerance"]
+    for name, value in metrics.items():
+      if value < baseline[name] - tolerance:
+        print(f"REGRESSION {name}: {value} < baseline {baseline[name]} - {tolerance}", file=sys.stderr)
+        failed = True
+  if failed:
     sys.exit(1)
 
 
