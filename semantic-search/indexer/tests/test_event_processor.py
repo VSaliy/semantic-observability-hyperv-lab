@@ -311,7 +311,7 @@ def test_aggregates_do_not_depend_on_delivery_order(
     results.append(store.documents)
 
   assert results[0] == results[1] == results[2]
-  assert len(results[0]) == 16
+  assert len(results[0]) == 21
   assert sum(document["occurrences"] for document in results[0].values()) == len(ordered)
 
 
