@@ -10,3 +10,5 @@ Please use GitHub Security Advisories for responsible disclosure.
 - Development authentication shortcuts must remain explicitly scoped to local development.
 - Tenant identity must be derived from authenticated claims and enforced server-side.
 - Evidence URLs are validated and sensitive fields are redacted before indexing or embedding.
+
+See the [threat model](docs/security/threat-model.md) for threats, mitigations, tests and known gaps.

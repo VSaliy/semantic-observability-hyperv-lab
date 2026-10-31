@@ -108,6 +108,8 @@ services:
       embedding-service:
         condition: service_started
     environment:
+      # The shared-secret HS256 decoder and the pinned clock exist only under the dev profile.
+      SPRING_PROFILES_ACTIVE: dev
       OPENSEARCH_URL: http://opensearch:9200
       EMBEDDING_URL: http://embedding-service:8090/embed
       QUERY_API_JWT_SECRET: local-dev-secret-local-dev-secret

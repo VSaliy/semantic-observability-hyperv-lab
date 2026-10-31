@@ -2,7 +2,7 @@
 
 | Topic | Implemented | Purpose | Key | Partitioning | Retention | Producer guarantees | Consumer group | Replay behavior | Schema | Classification | Expected volume |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `platform.telemetry-events` | Yes | Normalized operational events for semantic indexing | `eventId` | 3 partitions for event fan-in | Delete, 7 days | At-least-once | `semantic-indexer` | Replay allowed; idempotent document IDs tolerate redelivery | JSON Schema `operational-event.schema.json` | Internal operational metadata | Low in dev, bursty in incidents |
+| `platform.telemetry-events` | Yes | Normalized operational events for semantic indexing | `eventId` | 3 partitions for event fan-in | Delete, 7 days | At-least-once | `semantic-indexer` | At-least-once, commit after processing (offset committed only after the event is indexed, deduplicated or dead-lettered); replay allowed; idempotent aggregates tolerate redelivery | JSON Schema `operational-event.schema.json` | Internal operational metadata | Low in dev, bursty in incidents |
 | `semantic.dead-letter` | Yes | Invalid or poison events for inspection | `tenantId` or `eventId` | 3 partitions | Delete, 14 days | At-least-once | Manual triage | Replay only after fix | Dead-letter envelope JSON | Internal operational metadata | Very low |
 | `platform.alerts.raw` | Planned | Raw alert ingress | `alert fingerprint` | By alert source | TBD | At-least-once | Alert normalizer | Replay supported | TBD | Internal operational metadata | Medium |
 | `platform.alerts.normalized` | Planned | Normalized alerts | `alert fingerprint` | By alert source | TBD | At-least-once | Semantic indexer | Replay supported | JSON Schema | Internal operational metadata | Medium |

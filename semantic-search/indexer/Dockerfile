@@ -8,4 +8,7 @@ COPY src ./src
 RUN pip install --no-cache-dir --require-hashes -r requirements.txt \
   && pip install --no-cache-dir --no-deps . \
   && pip check
+RUN groupadd --system --gid 10001 app \
+  && useradd --system --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin app
+USER 10001:10001
 CMD ["python", "-m", "semantic_indexer.main"]

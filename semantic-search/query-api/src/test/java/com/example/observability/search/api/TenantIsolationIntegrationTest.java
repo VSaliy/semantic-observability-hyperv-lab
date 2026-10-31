@@ -51,7 +51,10 @@ import org.testcontainers.utility.DockerImageName;
  */
 @SpringBootTest(
     classes = {SearchApplication.class, TenantIsolationIntegrationTest.TestConfig.class},
-    properties = "query.reference-time=2026-07-01T11:30:00Z")
+    properties = {
+        "query.reference-time=2026-07-01T11:30:00Z",
+        "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://127.0.0.1:1/unused-jwks"
+    })
 @AutoConfigureMockMvc
 @Testcontainers(disabledWithoutDocker = true)
 class TenantIsolationIntegrationTest {
