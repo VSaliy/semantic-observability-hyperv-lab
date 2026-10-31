@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 DATASET = Path(__file__).with_name("datasets").joinpath("evaluation-dataset.json")
+TENANT_DOCUMENTS = Path(__file__).with_name("datasets").joinpath("tenant-documents.json")
 API_URL = os.environ.get("SEARCH_API_URL", "http://localhost:8080/api/v1/search")
 
 
@@ -64,6 +65,7 @@ def duration_from_range(start: str, end: str) -> str:
 def main() -> None:
   dataset = json.loads(DATASET.read_text(encoding="utf-8"))
   token = get_token()
+  tenant_documents: dict[str, list[str]] = json.loads(TENANT_DOCUMENTS.read_text(encoding="utf-8"))
   p5 = r10 = mrr = ndcg = latency = 0.0
   leakage = 0
   for entry in dataset:
@@ -89,6 +91,13 @@ def main() -> None:
     results = [item.get("documentId") or item.get("summary") for item in payload["results"]]
     if payload["interpretedFilters"]["tenant"] != entry["tenantId"]:
       leakage += 1
+    foreign = {
+      document_id
+      for tenant, ids in tenant_documents.items()
+      if tenant != entry["tenantId"]
+      for document_id in ids
+    }
+    leakage += sum(1 for result in results if result in foreign)
     expected = set(entry["expectedDocumentIds"])
     p5 += precision_at_k(results, expected, 5)
     r10 += recall_at_k(results, expected, 10)
@@ -103,6 +112,8 @@ def main() -> None:
     "averageLatencySeconds": round(latency / total, 3),
     "crossTenantLeakageCount": leakage
   }, indent=2))
+  if leakage:
+    sys.exit(1)
 
 
 if __name__ == "__main__":
