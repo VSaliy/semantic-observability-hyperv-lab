@@ -48,7 +48,7 @@ separate even when their wording overlaps.
 
 ## Delivery guarantee: at-least-once, commit after processing
 
-The indexer runs with `enable_auto_commit=False`. After `EventProcessor.process_payload` returns, which covers indexed, duplicate and dead-lettered events (the dead letter is flushed first), it commits `offset + 1` for that message's partition. If processing raises, for example because OpenSearch is unreachable, nothing is committed and the process stops, so the message is redelivered after a restart. A crash between processing and commit also causes redelivery. The idempotent aggregates above make that safe.
+The indexer runs with `enable_auto_commit=False`. After `EventProcessor.process_payload` returns, which covers indexed, duplicate and dead-lettered events (the dead letter is flushed first), it commits `offset + 1` for that message's partition. If processing raises, for example because OpenSearch is unreachable, nothing is committed and the process stops, so the message is redelivered after a restart. A message that is not a JSON object is dead-lettered as a size, SHA-256 and origin (never its bytes) and then committed, so one poison message cannot block its partition. A crash between processing and commit also causes redelivery. The idempotent aggregates above make that safe.
 
 ## Index versions
 

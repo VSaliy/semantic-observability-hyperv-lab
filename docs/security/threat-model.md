@@ -63,14 +63,18 @@ and the credentials and tokens that gate access. Anything marked *future work* i
 - **Asset / attacker:** operators who click evidence links. An event producer smuggles phishing,
   `javascript:` or internal-metadata URLs into `evidence[].url`.
 - **Mitigations:** evidence URLs must use `http` or `https` and have a host in the allowlist,
-  otherwise the event is dead-lettered (`semantic_indexer/validation.py`).
-- **Tests:** `test_invalid_event_reaches_dead_letter_topic`,
-  `test_evidence_references_survive_transformation`. There is no dedicated test for a disallowed host
-  or scheme.
-- **Gaps (future work):** the query API declares `query.valid-evidence-hosts` but does not re-check
-  links when returning them, so documents indexed before an allowlist change, or written by anything
-  other than the indexer, are not re-validated. Add a response-side check and tests for scheme and
-  host edge cases (userinfo, ports, look-alike hosts).
+  otherwise the event is dead-lettered (`semantic_indexer/validation.py`). The comparison is on the
+  exact authority, so userinfo, ports, case variants and look-alike hosts are rejected. The query API
+  re-applies the same allowlist (`query.valid-evidence-hosts`) to every result and drops links that
+  fail it (`application/EvidencePolicy.java`, called from `application/TenantSearchService.java`), so
+  documents written before an allowlist change, or by anything other than the indexer, cannot hand
+  out foreign links.
+- **Tests:** `test_evidence_urls_outside_the_allowlist_are_rejected` (schemes, userinfo, ports,
+  look-alike hosts), `EvidencePolicyTest`, and
+  `TenantIsolationIntegrationTest.evidenceLinksOutsideTheAllowlistAreNotReturned` against real
+  OpenSearch.
+- **Gaps (future work):** the allowlist is a static host list per deployment, not per tenant, and the
+  link target's content is not checked. Dropping a link is silent; add a metric for dropped links.
 
 ### 4. Prompt injection stored in indexed documents
 
@@ -90,14 +94,16 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   index, the dead-letter topic, logs or a third-party embedding provider is the attacker.
 - **Mitigations:** attribute values whose key contains `password`, `secret`, `token`,
   `authorization`, `connection` or `cookie` are replaced before indexing, embedding and
-  dead-lettering of embedding failures (`semantic_indexer/redaction.py`). The embedding input is the
-  redacted aggregate text.
+  every dead letter, including events that fail validation (`semantic_indexer/redaction.py`,
+  `semantic_indexer/service.py`). The embedding input is the redacted aggregate text. Messages that
+  are not JSON objects are dead-lettered as a size, SHA-256 and origin only, never their bytes.
 - **Tests:** `test_redacted_values_never_reach_opensearch`,
-  `test_embedding_failure_dead_letter_payload_is_redacted`.
+  `test_embedding_failure_dead_letter_payload_is_redacted`,
+  `test_validation_failure_dead_letter_is_redacted`,
+  `test_undecodable_message_is_dead_lettered_without_content_and_committed`.
 - **Gaps (future work):** redaction is key-name based. Secrets or personal data inside free-text
   fields or under innocuous keys are not detected; add value-pattern scanners, schema-level
-  classification and a retention policy. Events that fail validation are dead-lettered with their
-  original, unredacted payload.
+  classification and a retention policy.
 
 ### 6. Forged or replayed JWTs
 
@@ -146,7 +152,8 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   committed); `test_duplicate_delivery_creates_no_duplicate`,
   `test_aggregates_do_not_depend_on_delivery_order`, `test_write_conflict_is_retried`,
   `test_replayed_events_converge_on_aggregates`, `test_stale_write_is_rejected`.
-- **Gaps (future work):** a message that is not valid JSON fails in the consumer deserializer and
-  blocks its partition (no skip for undecodable bytes). A replay with a *new* `eventId` is
+  A message that is not a JSON object is dead-lettered and committed, so one poison message cannot
+  block its partition.
+- **Gaps (future work):** a replay with a *new* `eventId` is
   indistinguishable from a new event. Commits are per message and synchronous, trading throughput for
   simplicity.

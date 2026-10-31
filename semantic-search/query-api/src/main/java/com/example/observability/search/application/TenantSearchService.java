@@ -20,15 +20,18 @@ public class TenantSearchService {
   private final EmbeddingClient embeddingClient;
   private final SearchGateway searchGateway;
   private final DocumentScorer scorer;
+  private final EvidencePolicy evidencePolicy;
   private final Clock clock;
   private final MeterRegistry meterRegistry;
 
   public TenantSearchService(QueryApiProperties properties, EmbeddingClient embeddingClient,
-      SearchGateway searchGateway, DocumentScorer scorer, MeterRegistry meterRegistry, Clock clock) {
+      SearchGateway searchGateway, DocumentScorer scorer, EvidencePolicy evidencePolicy,
+      MeterRegistry meterRegistry, Clock clock) {
     this.properties = properties;
     this.embeddingClient = embeddingClient;
     this.searchGateway = searchGateway;
     this.scorer = scorer;
+    this.evidencePolicy = evidencePolicy;
     this.meterRegistry = meterRegistry;
     this.clock = clock;
   }
@@ -46,7 +49,10 @@ public class TenantSearchService {
         : searchGateway.keywordSearch(criteria, topK * 2);
     List<SearchCandidate> semantic = mode == SearchMode.KEYWORD ? List.of()
         : searchGateway.semanticSearch(criteria, embedding, topK * 2);
-    List<ScoredResult> results = scorer.score(criteria, keyword, semantic);
+    List<ScoredResult> results = scorer.score(criteria, keyword, semantic).stream()
+        .map(result -> new ScoredResult(result.documentId(), result.type(), result.score(),
+            result.explanation(), result.summary(), evidencePolicy.allowed(result.evidence())))
+        .toList();
     sample.stop(meterRegistry.timer("query_api_latency", "mode", mode.name()));
     Counter.builder("query_api_zero_results_total").tag("mode", mode.name()).register(meterRegistry)
         .increment(results.isEmpty() ? 1 : 0);

@@ -36,6 +36,9 @@ class RecordingProcessor:
       raise ConnectionError("opensearch unreachable")
     self.processed.append(payload["id"])
 
+  def dead_letter_undecodable(self, raw: bytes, reason: str, origin: str) -> None:
+    raise AssertionError("not expected")
+
 
 def message(partition: int, offset: int, value: dict[str, Any]) -> Any:
   return SimpleNamespace(topic=TOPIC, partition=partition, offset=offset, value=value)

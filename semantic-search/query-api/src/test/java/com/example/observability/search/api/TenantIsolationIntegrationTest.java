@@ -102,7 +102,9 @@ class TenantIsolationIntegrationTest {
         document("trading-log", "trading", "log_template", "2026-07-01T10:00:00Z",
             "Database connection acquisition timeout in risk-service.", OTHER_VECTOR),
         document(MARKET_DATA_DOCUMENT_ID, "market-data", "network_event", "2026-07-01T10:15:00Z",
-            "Unique phrase " + UNIQUE_PHRASE + " occurred for market-data tenant only.", PHRASE_VECTOR))) {
+            "Unique phrase " + UNIQUE_PHRASE + " occurred for market-data tenant only.", PHRASE_VECTOR),
+        withEvidence(document("trading-evidence", "trading", "log_template", "2026-07-01T10:20:00Z",
+            "Poisoned evidence marker quokka-ledger-7731 observed in risk-service.", unitVector(2))))) {
       bulk.append(MAPPER.writeValueAsString(Map.of("index", Map.of("_index", INDEX, "_id", document.get("document_id")))))
           .append('\n')
           .append(MAPPER.writeValueAsString(document))
@@ -135,6 +137,24 @@ class TenantIsolationIntegrationTest {
     search("trading", "database connection timeout", SearchMode.SEMANTIC)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.results", hasSize(2)));
+  }
+
+  @Test
+  void evidenceLinksOutsideTheAllowlistAreNotReturned() throws Exception {
+    search("trading", "quokka-ledger-7731", SearchMode.KEYWORD)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results", hasSize(1)))
+        .andExpect(jsonPath("$.results[0].evidence", hasSize(1)))
+        .andExpect(jsonPath("$.results[0].evidence[0].url").value("https://grafana.example/d/ok"));
+  }
+
+  private static Map<String, Object> withEvidence(Map<String, Object> document) {
+    Map<String, Object> copy = new java.util.HashMap<>(document);
+    copy.put("source_references", List.of(
+        Map.of("type", "log", "system", "grafana", "url", "https://grafana.example/d/ok"),
+        Map.of("type", "log", "system", "grafana", "url", "https://evil.test/phish"),
+        Map.of("type", "log", "system", "grafana", "url", "javascript:alert(1)")));
+    return copy;
   }
 
   private ResultActions search(String tenant, String query, SearchMode mode) throws Exception {
