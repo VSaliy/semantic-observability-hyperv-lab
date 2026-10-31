@@ -11,6 +11,7 @@ import com.nimbusds.jwt.SignedJWT;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.UUID;
 
 final class TestTokens {
   private TestTokens() {}
@@ -22,23 +23,30 @@ final class TestTokens {
   }
 
   static String rs256(RSAKey key, String tenant, String audience) throws JOSEException {
+    return rs256WithJti(key, tenant, audience, UUID.randomUUID().toString());
+  }
+
+  static String rs256WithJti(RSAKey key, String tenant, String audience, String jti) throws JOSEException {
     SignedJWT jwt = new SignedJWT(
         new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(),
-        claims(null, tenant, audience));
+        claims(null, tenant, audience, jti));
     jwt.sign(new RSASSASigner(key));
     return jwt.serialize();
   }
 
   private static JWTClaimsSet claims(String issuer, String tenant) {
-    return claims(issuer, tenant, null);
+    return claims(issuer, tenant, null, UUID.randomUUID().toString());
   }
 
-  private static JWTClaimsSet claims(String issuer, String tenant, String audience) {
+  private static JWTClaimsSet claims(String issuer, String tenant, String audience, String jti) {
     JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
         .subject("test-user")
         .claim("tenant", tenant)
         .issueTime(Date.from(Instant.now().minusSeconds(60)))
         .expirationTime(Date.from(Instant.now().plusSeconds(600)));
+    if (jti != null) {
+      builder.jwtID(jti);
+    }
     if (audience != null) {
       builder.audience(audience);
     }

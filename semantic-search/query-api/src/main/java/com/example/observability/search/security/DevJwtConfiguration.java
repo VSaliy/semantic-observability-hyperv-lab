@@ -30,7 +30,8 @@ class DevJwtConfiguration {
   JwtDecoder devJwtDecoder(
       @Value("${query.jwt-secret:}") String secret,
       @Value("${query.jwt-issuer:}") String issuer,
-      @Value("${query.allow-dev-auth:false}") boolean allowDevAuth) {
+      @Value("${query.allow-dev-auth:false}") boolean allowDevAuth,
+      JtiReplayValidator jtiReplayValidator) {
     if (!allowDevAuth) {
       throw new IllegalStateException(
           "The 'dev' profile enables a public shared secret and must be opted into explicitly: set "
@@ -51,7 +52,8 @@ class DevJwtConfiguration {
         .build();
     OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
         JwtValidators.createDefault(),
-        new JwtIssuerValidator(issuer));
+        new JwtIssuerValidator(issuer),
+        jtiReplayValidator);
     decoder.setJwtValidator(validator);
     return decoder;
   }
