@@ -1,8 +1,10 @@
 # Search evaluation
 
-The evaluation dataset is deterministic and has 27 questions: 18 for the `trading` tenant and 9 for the `market-data` tenant. Each question runs with a token for its own tenant (`scripts/bootstrap/generate-dev-jwt.py <tenant>`). Six are negative controls with no expected document, including cross-tenant and injection-style queries; they count towards leakage but not towards the ranking metrics. Metrics include Precision@5, Recall@10, MRR, nDCG@10, query latency, and cross-tenant leakage count.
+The evaluation dataset is deterministic and has 44 questions over three tenants: 24 for `trading`, 9 for `market-data` and 11 for `payments`. Each question runs with a token for its own tenant (`scripts/bootstrap/generate-dev-jwt.py <tenant>`). Ten are negative controls with no expected document, including cross-tenant and injection-style queries; they count towards leakage but not towards the ranking metrics. Metrics include Precision@5, Recall@10, MRR, nDCG@10, query latency, and cross-tenant leakage count.
 
-Baseline on the seeded dev stack (21 ranked questions): P@5 0.257, R@10 0.771, MRR 0.734, nDCG@10 0.651, leakage 0. Re-seeding can move nDCG@10 by 0.001 because OpenSearch term statistics change. This baseline replaces the earlier trading-only one (P@5 0.244, R@10 0.705, MRR 0.657, nDCG@10 0.584), which is not comparable.
+Baseline on the seeded dev stack (21 documents, 34 ranked questions): P@5 0.224, R@10 0.775, MRR 0.701, nDCG@10 0.646, leakage 0. The values were identical over three runs and after re-seeding. Earlier baselines (21 ranked questions: P@5 0.257, R@10 0.771, MRR 0.734, nDCG@10 0.651; before that a trading-only set) are not comparable.
+
+Four questions are tagged `paraphrase`: they avoid the words used in the target documents. With the hash embedding they only succeed through incidental word overlap (q-037 to q-039 find most of their expected documents through shared words such as "database" and "latency"; q-040 finds none). They are too few to separate a real embedding gain from noise on their own, so grow them when the embedding work starts.
 
 Leakage counts both a response whose tenant differs from the expected one and any document listed for another tenant in `datasets/tenant-documents.json` appearing in the results. The script exits non-zero when the count is above zero. Document IDs are deterministic hashes, so when the fixtures gain a tenant's events, add that tenant's document IDs to the file.
 
@@ -15,7 +17,7 @@ Leakage counts both a response whose tenant differs from the expected one and an
 
 ## Similarity-floor sweep
 
-Measured on the seeded dev stack (16 documents, 21 ranked questions, `mode: HYBRID`) by setting `QUERY_API_MIN_SEMANTIC_SIMILARITY` and re-running `evaluate_search.py`. Leakage was 0 in every run.
+Measured on the seeded dev stack (16 documents, 21 ranked questions, `mode: HYBRID`; measured before the `payments` tenant was added) by setting `QUERY_API_MIN_SEMANTIC_SIMILARITY` and re-running `evaluate_search.py`. Leakage was 0 in every run.
 
 | Floor | P@5 | R@10 | MRR | nDCG@10 |
 | ----- | --- | ---- | --- | ------- |

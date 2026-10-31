@@ -127,7 +127,7 @@ def test_replayed_events_converge_on_aggregates(opensearch_url: str, alias: str)
   assert (replay.indexed, replay.duplicates) == (0, len(events))
   assert not producer.messages
   documents = search_all(opensearch_url, alias)
-  assert len(documents) == 16
+  assert len(documents) == 21
   assert sum(document["occurrences"] for document in documents) == len(events)
 
   by_type: dict[str, list[dict[str, Any]]] = {}
@@ -136,6 +136,13 @@ def test_replayed_events_converge_on_aggregates(opensearch_url: str, alias: str)
       by_type.setdefault(document["document_type"], []).append(document)
   market_data = [document for document in documents if document["tenant_id"] == "market-data"]
   assert len(market_data) == 5
+  payments = [document for document in documents if document["tenant_id"] == "payments"]
+  assert len(payments) == 5
+  (payments_incident,) = (
+    document for document in payments if document["document_type"] == "incident"
+  )
+  assert payments_incident["incident_id"] == "INC-0101"
+  assert payments_incident["status"] == "resolved"
   (market_incident,) = (
     document for document in market_data if document["document_type"] == "incident"
   )
