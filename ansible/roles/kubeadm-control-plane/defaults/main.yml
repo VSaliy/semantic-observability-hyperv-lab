@@ -1,0 +1,14 @@
+---
+kubeadm_control_plane_enabled: true
+
+# Paths produced by kubeadm on the control-plane node.
+kubernetes_admin_conf: /etc/kubernetes/admin.conf
+kubeadm_config_path: /etc/kubernetes/kubeadm-config.yaml
+
+# Working directory for rendered Helm values on the node.
+kube_addons_manifest_dir: /etc/kubernetes/addons
+
+# Pinned Helm client (overridden lab-wide by group_vars/all.yml).
+helm_version: "3.16.2"
+helm_download_url: "https://get.helm.sh/helm-v{{ helm_version }}-linux-amd64.tar.gz"
+helm_install_path: /usr/local/bin/helm

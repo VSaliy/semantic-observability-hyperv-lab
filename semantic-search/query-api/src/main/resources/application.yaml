@@ -1,0 +1,28 @@
+server:
+  port: 8080
+spring:
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+query:
+  top-k-limit: 20
+  default-time-range: PT2H
+  required-tenant-claim: tenant
+  valid-evidence-hosts:
+    - grafana.example
+    - kafka.example
+    - opensearch.example
+  embedding-url: ${EMBEDDING_URL:http://embedding-service:8090/embed}
+  opensearch-url: ${OPENSEARCH_URL:http://opensearch:9200}
+  opensearch-index-alias: observability-documents
+  # Cosine-similarity floor for semantic candidates. Calibrate per embedding model.
+  min-semantic-similarity: ${QUERY_API_MIN_SEMANTIC_SIMILARITY:0.5}

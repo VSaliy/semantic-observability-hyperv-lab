@@ -1,0 +1,8 @@
+---
+platform_addons_enabled: true
+
+# Reuse the control-plane paths and pinned Helm client.
+kubernetes_admin_conf: /etc/kubernetes/admin.conf
+kube_addons_manifest_dir: /etc/kubernetes/addons
+helm_install_path: /usr/local/bin/helm
+kubectl_bin: /usr/bin/kubectl

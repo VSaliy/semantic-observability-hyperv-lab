@@ -1,0 +1,19 @@
+---
+baseline_enabled: true
+
+# Timezone applied to every guest (falls back to the lab-wide value).
+baseline_timezone: "{{ lab_timezone | default('UTC') }}"
+
+# Packages every guest needs before any role-specific work.
+baseline_packages:
+  - ca-certificates
+  - curl
+  - gnupg
+  - apt-transport-https
+  - software-properties-common
+  - chrony
+  - python3
+  - python3-apt
+
+# Manage an Ansible-owned block in /etc/hosts from the inventory.
+baseline_manage_hosts: true

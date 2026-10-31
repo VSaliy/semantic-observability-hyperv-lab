@@ -1,0 +1,34 @@
+receivers:
+  otlp:
+    protocols:
+      grpc: {}
+      http: {}
+processors:
+  k8sattributes:
+    auth_type: serviceAccount
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+  attributes/tenant:
+    actions:
+      - key: tenant.id
+        from_attribute: tenant.id
+        action: upsert
+  transform/validate:
+    error_mode: ignore
+    log_statements:
+      - context: log
+        statements:
+          - set(attributes["quarantine.reason"], "missing tenant.id") where attributes["tenant.id"] == nil
+  batch: {}
+exporters:
+  kafka:
+    brokers: [kafka.platform-messaging.svc.cluster.local:9092]
+    topic: platform.telemetry-events
+  debug: {}
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [k8sattributes, memory_limiter, attributes/tenant, transform/validate, batch]
+      exporters: [kafka, debug]

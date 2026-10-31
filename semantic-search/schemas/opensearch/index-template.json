@@ -1,0 +1,65 @@
+{
+  "index_patterns": ["observability-documents-v2*"],
+  "template": {
+    "settings": {
+      "index": {
+        "number_of_shards": 1,
+        "number_of_replicas": 0,
+        "knn": true
+      }
+    },
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "document_id": {"type": "keyword"},
+        "document_type": {"type": "keyword"},
+        "semantic_text": {"type": "text"},
+        "semantic_vector": {
+          "type": "knn_vector",
+          "dimension": 16,
+          "method": {
+            "name": "hnsw",
+            "space_type": "cosinesimil",
+            "engine": "nmslib"
+          }
+        },
+        "tenant_id": {"type": "keyword"},
+        "timestamp": {"type": "date"},
+        "first_seen": {"type": "date"},
+        "last_seen": {"type": "date"},
+        "service_name": {"type": "keyword"},
+        "service_namespace": {"type": "keyword"},
+        "environment": {"type": "keyword"},
+        "service_version": {"type": "keyword"},
+        "severity": {"type": "keyword"},
+        "status": {"type": "keyword"},
+        "trace_id": {"type": "keyword"},
+        "incident_id": {"type": "keyword"},
+        "change_id": {"type": "keyword"},
+        "event_id": {"type": "keyword"},
+        "event_ids": {"type": "keyword"},
+        "occurrences": {"type": "integer"},
+        "alert_name": {"type": "keyword"},
+        "template": {"type": "text"},
+        "exception_type": {"type": "keyword"},
+        "cause": {"type": "text"},
+        "resolution": {"type": "text"},
+        "change_summary": {"type": "text"},
+        "services": {"type": "keyword"},
+        "symptoms": {"type": "keyword"},
+        "critical_path": {"type": "keyword"},
+        "topology_entities": {"type": "keyword"},
+        "summary": {"type": "text"},
+        "source_references": {
+          "type": "nested",
+          "properties": {
+            "type": {"type": "keyword"},
+            "system": {"type": "keyword"},
+            "url": {"type": "keyword"}
+          }
+        },
+        "contributions": {"type": "object", "enabled": false}
+      }
+    }
+  }
+}

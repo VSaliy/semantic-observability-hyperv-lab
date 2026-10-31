@@ -1,0 +1,41 @@
+# Illustrative tenant controls. The authoritative tenant provisioning path is
+# the Terraform tenant module (terraform/environments/lab). Do not apply this
+# file alongside Terraform, which manages the same resources for tenant-trading.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: trading-quota
+  namespace: tenant-trading
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    requests.storage: 50Gi
+    limits.cpu: "4"
+    limits.memory: 8Gi
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: trading-limits
+  namespace: tenant-trading
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 250m
+        memory: 256Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: tenant-trading
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress

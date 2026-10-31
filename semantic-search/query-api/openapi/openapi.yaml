@@ -1,0 +1,40 @@
+openapi: 3.0.3
+info:
+  title: Hybrid Search API
+  version: 0.1.0
+paths:
+  /api/v1/search:
+    post:
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [query, environment, timeRange, topK, mode]
+              properties:
+                query:
+                  type: string
+                environment:
+                  type: string
+                timeRange:
+                  type: string
+                topK:
+                  type: integer
+                  minimum: 1
+                  maximum: 20
+                mode:
+                  type: string
+                  enum: [KEYWORD, SEMANTIC, HYBRID]
+      responses:
+        '200':
+          description: Search results
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

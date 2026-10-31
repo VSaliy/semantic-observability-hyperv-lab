@@ -1,0 +1,30 @@
+rule_files:
+  - prometheus-rules.yaml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_processing_seconds_bucket{le="120"}'
+        values: '0 1 2 3 4 5'
+      - series: 'semantic_indexer_processing_seconds_bucket{le="+Inf"}'
+        values: '0 1 2 3 4 5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SemanticIndexingDelayHigh
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_dead_letter_events_total'
+        values: '0+10x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SemanticIndexerDeadLetterRateHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SemanticIndexerDeadLetterRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/semantic-dead-letters
+            exp_annotations:
+              summary: Events are being dead-lettered faster than 0.1 per second; inspect semantic.dead-letter for a bad producer or poison input.

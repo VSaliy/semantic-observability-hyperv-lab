@@ -1,0 +1,28 @@
+# Example platform ingress: terminates TLS with the lab CA (cert-manager) and
+# routes to the query API service once it is deployed to the cluster. It is a
+# reference manifest for the Milestone 3 ingress path; the backend service is
+# created in a later milestone.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: query-api
+  namespace: platform-search
+  annotations:
+    cert-manager.io/cluster-issuer: lab-ca
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - search.lab.example.com
+      secretName: query-api-tls
+  rules:
+    - host: search.lab.example.com
+      http:
+        paths:
+          - path: /api/v1/search
+            pathType: Prefix
+            backend:
+              service:
+                name: query-api
+                port:
+                  number: 8080
