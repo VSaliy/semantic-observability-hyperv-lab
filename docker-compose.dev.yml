@@ -110,6 +110,7 @@ services:
     environment:
       # The shared-secret HS256 decoder and the pinned clock exist only under the dev profile.
       SPRING_PROFILES_ACTIVE: dev
+      QUERY_API_ALLOW_DEV_AUTH: "true"
       OPENSEARCH_URL: http://opensearch:9200
       EMBEDDING_URL: http://embedding-service:8090/embed
       QUERY_API_JWT_SECRET: local-dev-secret-local-dev-secret

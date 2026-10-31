@@ -29,7 +29,13 @@ class DevJwtConfiguration {
   @Bean
   JwtDecoder devJwtDecoder(
       @Value("${query.jwt-secret:}") String secret,
-      @Value("${query.jwt-issuer:}") String issuer) {
+      @Value("${query.jwt-issuer:}") String issuer,
+      @Value("${query.allow-dev-auth:false}") boolean allowDevAuth) {
+    if (!allowDevAuth) {
+      throw new IllegalStateException(
+          "The 'dev' profile enables a public shared secret and must be opted into explicitly: set "
+              + "query.allow-dev-auth=true. Never do this outside local development.");
+    }
     if (secret.isBlank() || issuer.isBlank()) {
       throw new IllegalStateException(
           "The 'dev' profile requires query.jwt-secret and query.jwt-issuer (see application-dev.yaml).");

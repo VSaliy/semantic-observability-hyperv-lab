@@ -74,7 +74,8 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   `TenantIsolationIntegrationTest.evidenceLinksOutsideTheAllowlistAreNotReturned` against real
   OpenSearch.
 - **Gaps (future work):** the allowlist is a static host list per deployment, not per tenant, and the
-  link target's content is not checked. Dropping a link is silent; add a metric for dropped links.
+  link target's content is not checked. Dropped links are counted in
+  `query_api_evidence_links_dropped_total`; alert on it once a baseline exists.
 
 ### 4. Prompt injection stored in indexed documents
 
@@ -112,13 +113,17 @@ and the credentials and tokens that gate access. Anything marked *future work* i
 - **Mitigations:** outside the `dev` profile the API validates tokens only through standard Spring
   resource-server configuration (`spring.security.oauth2.resourceserver.jwt.issuer-uri` or
   `jwk-set-uri`) with the default signature, expiry and not-before checks. An HS256 token is not
-  accepted by a JWKS decoder. Without any decoder the application refuses to start
-  (`security/SecurityConfiguration.java`). The tenant claim is mandatory
+  accepted by a JWKS decoder. Without any decoder, or without
+  `spring.security.oauth2.resourceserver.jwt.audiences`, the application refuses to start
+  (`security/SecurityConfiguration.java`); Spring then rejects tokens whose `aud` does not contain the
+  configured audience, so a token minted for another service by the same issuer is refused. The
+  tenant claim is mandatory
   (`application/TenantSearchService.java`).
 - **Tests:** `ResourceServerAuthenticationTest` (an HS256 token signed with the dev secret gets 401, a
-  token from the configured JWKS gets 200), `StartupWithoutJwtConfigurationTest`,
+  token from the configured JWKS and audience gets 200, a token for another audience or without one
+  gets 401), `StartupWithoutJwtConfigurationTest` (also: no audience configured fails startup),
   `DevProfileAuthenticationTest` (wrong secret, wrong issuer, no token all give 401).
-- **Gaps (future work):** audience validation, a short-lifetime and revocation policy, and
+- **Gaps (future work):** a short-lifetime and revocation policy, and
   `jti`-based replay detection. A stolen bearer token is valid until `exp`. Keycloak and TLS
   termination arrive in a later milestone.
 
@@ -130,13 +135,16 @@ and the credentials and tokens that gate access. Anything marked *future work* i
 - **Mitigations:** the shared-secret HS256 decoder, the dev issuer and the pinned reference clock
   exist only under the `dev` Spring profile (`security/DevJwtConfiguration.java`,
   `application-dev.yaml`). There is no default secret anywhere else, the profile logs a warning at
-  startup, and the secret must be at least 32 bytes. Only `docker-compose.dev.yml` activates the
-  profile.
+  startup, and the secret must be at least 32 bytes. The profile alone is not enough: the decoder
+  also requires `query.allow-dev-auth=true` (`QUERY_API_ALLOW_DEV_AUTH`), which only
+  `docker-compose.dev.yml` sets, so a stray `SPRING_PROFILES_ACTIVE=dev` fails at startup. The
+  `shell-and-security` CI job fails if any file other than the dev compose file, the dev profile
+  yaml, tests and docs references the dev profile or that flag.
 - **Tests:** `DevProfileAuthenticationTest`, `ResourceServerAuthenticationTest`,
-  `StartupWithoutJwtConfigurationTest`.
-- **Gaps (future work):** nothing technically stops an operator from setting
-  `SPRING_PROFILES_ACTIVE=dev` in a shared environment. Add a deployment-policy check (an admission
-  rule or a CI check on manifests) that rejects the `dev` profile outside local compose.
+  `StartupWithoutJwtConfigurationTest.devProfileAloneIsNotEnough`.
+- **Gaps (future work):** an operator who sets both the profile and the flag in a shared environment
+  still gets the public secret; add a deployment-policy check (an admission rule on rendered
+  manifests) once there are deployment manifests for the API.
 
 ### 8. Kafka redelivery and replay
 

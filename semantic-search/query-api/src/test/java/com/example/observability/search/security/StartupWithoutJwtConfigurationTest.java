@@ -33,7 +33,33 @@ class StartupWithoutJwtConfigurationTest {
 
   @Test
   void startsWithDevProfile() {
-    try (ConfigurableApplicationContext context = application("spring.profiles.active=dev").run("--server.port=0")) {
+    try (ConfigurableApplicationContext context = application("spring.profiles.active=dev")
+        .run("--server.port=0", "--query.allow-dev-auth=true")) {
+      assertThat(context.isRunning()).isTrue();
+    }
+  }
+
+  @Test
+  void devProfileAloneIsNotEnough() {
+    assertThatThrownBy(() -> application("spring.profiles.active=dev").run("--server.port=0"))
+        .hasStackTraceContaining("must be opted into explicitly")
+        .hasStackTraceContaining("query.allow-dev-auth=true");
+  }
+
+  @Test
+  void failsWithoutAudienceOutsideDevProfile() {
+    assertThatThrownBy(() -> application(
+        "spring.profiles.active=none",
+        "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://127.0.0.1:1/jwks").run("--server.port=0"))
+        .hasStackTraceContaining("No accepted JWT audience is configured");
+  }
+
+  @Test
+  void startsWithJwksAndAudience() {
+    try (ConfigurableApplicationContext context = application(
+        "spring.profiles.active=none",
+        "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://127.0.0.1:1/jwks",
+        "spring.security.oauth2.resourceserver.jwt.audiences=semantic-search-api").run("--server.port=0")) {
       assertThat(context.isRunning()).isTrue();
     }
   }

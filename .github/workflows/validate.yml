@@ -65,6 +65,15 @@ jobs:
           fetch-depth: 0
       - run: sudo apt-get update && sudo apt-get install -y shellcheck
       - run: find scripts -name '*.sh' -print0 | xargs -0 -r shellcheck
+      - name: The dev Spring profile is enabled only by the local dev compose file
+        run: |
+          if grep -rIEn 'SPRING_PROFILES_ACTIVE.*dev|spring\.profiles\.active[=:].*dev|QUERY_API_ALLOW_DEV_AUTH' \
+              --exclude-dir=.git --exclude-dir=target --exclude-dir=docs --exclude=README.md \
+              --exclude=docker-compose.dev.yml --exclude=application-dev.yaml --exclude=validate.yml \
+              --exclude='*Test.java' .; then
+            echo 'The dev profile or QUERY_API_ALLOW_DEV_AUTH is referenced outside docker-compose.dev.yml' >&2
+            exit 1
+          fi
       - uses: zricethezav/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

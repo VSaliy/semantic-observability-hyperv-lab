@@ -21,19 +21,27 @@ final class TestTokens {
     return jwt.serialize();
   }
 
-  static String rs256(RSAKey key, String tenant) throws JOSEException {
+  static String rs256(RSAKey key, String tenant, String audience) throws JOSEException {
     SignedJWT jwt = new SignedJWT(
-        new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(), claims(null, tenant));
+        new JWSHeader.Builder(JWSAlgorithm.RS256).keyID(key.getKeyID()).build(),
+        claims(null, tenant, audience));
     jwt.sign(new RSASSASigner(key));
     return jwt.serialize();
   }
 
   private static JWTClaimsSet claims(String issuer, String tenant) {
+    return claims(issuer, tenant, null);
+  }
+
+  private static JWTClaimsSet claims(String issuer, String tenant, String audience) {
     JWTClaimsSet.Builder builder = new JWTClaimsSet.Builder()
         .subject("test-user")
         .claim("tenant", tenant)
         .issueTime(Date.from(Instant.now().minusSeconds(60)))
         .expirationTime(Date.from(Instant.now().plusSeconds(600)));
+    if (audience != null) {
+      builder.audience(audience);
+    }
     if (issuer != null) {
       builder.issuer(issuer);
     }
