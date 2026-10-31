@@ -127,12 +127,20 @@ def test_replayed_events_converge_on_aggregates(opensearch_url: str, alias: str)
   assert (replay.indexed, replay.duplicates) == (0, len(events))
   assert not producer.messages
   documents = search_all(opensearch_url, alias)
-  assert len(documents) == 12
+  assert len(documents) == 16
   assert sum(document["occurrences"] for document in documents) == len(events)
 
   by_type: dict[str, list[dict[str, Any]]] = {}
   for document in documents:
-    by_type.setdefault(document["document_type"], []).append(document)
+    if document["tenant_id"] == "trading":
+      by_type.setdefault(document["document_type"], []).append(document)
+  market_data = [document for document in documents if document["tenant_id"] == "market-data"]
+  assert len(market_data) == 5
+  (market_incident,) = (
+    document for document in market_data if document["document_type"] == "incident"
+  )
+  assert market_incident["incident_id"] == "INC-0077"
+  assert market_incident["status"] != "resolved"
   pool_template = next(
     document for document in by_type["log_template"]
     if document["exception_type"] == "SQLTransientConnectionException"
