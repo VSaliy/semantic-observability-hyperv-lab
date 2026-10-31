@@ -45,19 +45,43 @@ class OffsetCommittingConsumer(Protocol):
 class PayloadProcessor(Protocol):
   def process_payload(self, payload: dict[str, Any]) -> object: ...
 
+  def dead_letter_undecodable(self, raw: bytes, reason: str, origin: str) -> None: ...
+
+
+def decode_message(value: Any) -> dict[str, Any] | None:
+  """Return the JSON object carried by a message, or None if it is not one."""
+  if isinstance(value, dict):
+    return value
+  try:
+    decoded = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
+  except (ValueError, TypeError):
+    return None
+  return decoded if isinstance(decoded, dict) else None
+
 
 def consume_available(consumer: Iterable[Any], committer: OffsetCommittingConsumer,
                       processor: PayloadProcessor) -> int:
   """Handle every message the consumer yields and commit each offset only after it is handled.
 
   process_payload returns for indexed, duplicate and dead-lettered events (the dead letter is
-  flushed before it returns), so all three are committed. If it raises, the exception propagates
-  without committing: the process must stop so the message is redelivered after a restart.
-  Delivery is therefore at-least-once; the idempotent aggregates absorb the redelivery.
+  flushed before it returns), so all three are committed. Messages that are not JSON objects are
+  dead-lettered as well, so one poison message cannot block its partition. If processing raises,
+  the exception propagates without committing: the process must stop so the message is
+  redelivered after a restart. Delivery is therefore at-least-once; the idempotent aggregates
+  absorb the redelivery.
   """
   handled = 0
   for message in consumer:
-    processor.process_payload(message.value)
+    payload = decode_message(message.value)
+    if payload is None:
+      raw = message.value if isinstance(message.value, bytes) else str(message.value).encode()
+      processor.dead_letter_undecodable(
+        raw,
+        "message is not a JSON object",
+        f"{message.topic}[{message.partition}]@{message.offset}"
+      )
+    else:
+      processor.process_payload(payload)
     partition = TopicPartition(message.topic, message.partition)
     committer.commit({partition: OffsetAndMetadata(message.offset + 1, "", -1)})
     handled += 1
@@ -79,7 +103,7 @@ class KafkaEventRuntime:
       group_id=settings.kafka_group_id,
       auto_offset_reset="earliest",
       enable_auto_commit=False,
-      value_deserializer=lambda value: json.loads(value.decode("utf-8")),
+      value_deserializer=None,
       consumer_timeout_ms=int(settings.poll_timeout_seconds * 1000)
     )
 

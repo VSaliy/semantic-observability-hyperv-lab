@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from collections.abc import Iterable
@@ -132,10 +133,25 @@ class EventProcessor:
         time.sleep(min(attempt, 3))
     return None
 
+  def dead_letter_undecodable(self, raw: bytes, reason: str, origin: str) -> None:
+    """Dead-letter a message that is not a JSON object, without copying its content.
+
+    Only size, digest and origin are kept: undecodable bytes cannot be redacted.
+    """
+    DEAD_LETTER_EVENTS.inc()
+    self._dead_letter_producer.send(
+      self._dead_letter_topic,
+      {
+        "reason": reason,
+        "payload": None,
+        "raw": {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest(), "origin": origin}
+      }
+    )
+
   def _publish_dead_letter(self, payload: dict[str, Any], reason: str) -> None:
     DEAD_LETTER_EVENTS.inc()
     self._dead_letter_producer.send(
       self._dead_letter_topic,
-      {"reason": reason, "payload": payload},
+      {"reason": reason, "payload": redact_value(payload)},
       key=payload.get("tenantId") or payload.get("eventId")
     )
