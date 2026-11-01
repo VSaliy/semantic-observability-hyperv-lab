@@ -28,3 +28,19 @@ tests:
               runbook_url: https://grafana.example/docs/runbooks/semantic-dead-letters
             exp_annotations:
               summary: Events are being dead-lettered faster than 0.1 per second; inspect semantic.dead-letter for a bad producer or poison input.
+  - interval: 1m
+    input_series:
+      - series: 'query_api_evidence_links_dropped_total'
+        values: '0+1x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: QueryApiEvidenceLinksDropped
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: QueryApiEvidenceLinksDropped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/dropped-evidence-links
+            exp_annotations:
+              summary: The query API dropped evidence links outside the tenant allowlist; inspect OpenSearch documents and producer inputs.

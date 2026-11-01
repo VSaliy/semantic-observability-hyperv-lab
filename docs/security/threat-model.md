@@ -70,15 +70,16 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   `query.valid-evidence-hosts`) to every result and drops links that fail it
   (`application/EvidencePolicy.java`, called from `application/TenantSearchService.java`), so
   documents written before an allowlist change, for another tenant's host, or by anything other than
-  the indexer, cannot hand out foreign links.
+  the indexer, cannot hand out foreign links. Dropped links increment
+  `query_api_evidence_links_dropped_total`, and the `QueryApiEvidenceLinksDropped` Prometheus rule
+  alerts when links are dropped (`slo/prometheus-rules.yaml`).
 - **Tests:** `test_evidence_urls_outside_the_allowlist_are_rejected` (schemes, userinfo, ports,
   look-alike hosts), `test_per_tenant_evidence_allowlist_restricts_hosts_by_tenant`,
-  `EvidencePolicyTest`, and
+  `EvidencePolicyTest`,
   `TenantIsolationIntegrationTest.evidenceLinksOutsideTheAllowlistAreNotReturned` against real
-  OpenSearch.
+  OpenSearch, and `slo/prometheus-rules.test.yaml` (`QueryApiEvidenceLinksDropped`).
 - **Gaps (future work):** the per-tenant allowlist is configured statically in application settings
-  rather than managed dynamically per tenant, and the link target's content is not checked. Dropped
-  links are counted in `query_api_evidence_links_dropped_total`; alert on it once a baseline exists.
+  rather than managed dynamically per tenant, and the link target's content is not checked.
 
 ### 4. Prompt injection stored in indexed documents
 

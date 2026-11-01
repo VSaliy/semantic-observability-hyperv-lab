@@ -27,3 +27,11 @@ groups:
           runbook_url: https://grafana.example/docs/runbooks/hybrid-search-latency
         annotations:
           summary: Hybrid search API latency breached the SLO.
+      - alert: QueryApiEvidenceLinksDropped
+        expr: sum(rate(query_api_evidence_links_dropped_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          runbook_url: https://grafana.example/docs/runbooks/dropped-evidence-links
+        annotations:
+          summary: The query API dropped evidence links outside the tenant allowlist; inspect OpenSearch documents and producer inputs.
