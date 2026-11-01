@@ -6,12 +6,21 @@ from typing import Any
 from urllib.parse import urlparse
 
 from jsonschema import Draft202012Validator
+from pydantic import ValidationError
 
 from semantic_indexer.models import OperationalEvent
+from semantic_indexer.redaction import redact_evidence_url, redact_text
 
 
 class EventValidationError(ValueError):
   pass
+
+
+def _format_schema_error(error: Any) -> str:
+  location = ".".join(str(part) for part in error.path) or "<root>"
+  if error.validator == "required":
+    return f"{location}: {redact_text(error.message)}"
+  return f"{location}: failed {error.validator} validation"
 
 
 class EventValidator:
@@ -29,13 +38,22 @@ class EventValidator:
     }
 
   def parse(self, payload: dict[str, Any]) -> OperationalEvent:
-    errors = sorted(self._validator.iter_errors(payload), key=lambda error: error.path)
+    try:
+      event = OperationalEvent.model_validate(payload)
+    except ValidationError as exc:
+      messages = [
+        f"{'.'.join(str(part) for part in err.get('loc', ()))}: {err.get('msg', 'invalid value')}"
+        for err in exc.errors(include_input=False, include_url=False)
+      ]
+      raise EventValidationError("; ".join(messages) or "invalid event payload") from exc
+    errors = sorted(self._validator.iter_errors(payload), key=lambda error: list(error.path))
     if errors:
-      raise EventValidationError("; ".join(error.message for error in errors))
-    event = OperationalEvent.model_validate(payload)
+      raise EventValidationError("; ".join(_format_schema_error(error) for error in errors))
     allowed_hosts = self._tenant_valid_hosts.get(event.tenantId, self._valid_hosts)
     for reference in event.evidence:
       parsed = urlparse(reference.url)
       if parsed.scheme not in {"http", "https"} or parsed.netloc not in allowed_hosts:
-        raise EventValidationError(f"invalid evidence URL host: {reference.url}")
+        raise EventValidationError(
+          f"invalid evidence URL host: {redact_evidence_url(reference.url)}"
+        )
     return event

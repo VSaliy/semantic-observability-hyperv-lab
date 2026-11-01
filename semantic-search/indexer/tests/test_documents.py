@@ -104,7 +104,7 @@ def test_aggregate_document_caps_contributions_while_preserving_first_and_latest
   assert document.occurrences == 5
   assert len(document.contributions) == 3
   assert [item.event_id for item in document.contributions] == ["evt-0001", "evt-0004", "evt-0005"]
-  assert document.event_ids == ["evt-0001", "evt-0004", "evt-0005"]
+  assert document.event_ids == ["evt-0001", "evt-0002", "evt-0003", "evt-0004", "evt-0005"]
   assert document.first_seen == start + timedelta(seconds=1)
   assert document.last_seen == start + timedelta(seconds=5)
   assert "5 occurrences" in document.summary

@@ -41,14 +41,14 @@ class ListProducer:
 
 @pytest.fixture(scope="module")
 def opensearch_url() -> Iterator[str]:
-  container = (
-    DockerContainer(IMAGE)
-    .with_env("discovery.type", "single-node")
-    .with_env("DISABLE_SECURITY_PLUGIN", "true")
-    .with_env("OPENSEARCH_JAVA_OPTS", "-Xms512m -Xmx512m")
-    .with_exposed_ports(9200)
-  )
   try:
+    container = (
+      DockerContainer(IMAGE)
+      .with_env("discovery.type", "single-node")
+      .with_env("DISABLE_SECURITY_PLUGIN", "true")
+      .with_env("OPENSEARCH_JAVA_OPTS", "-Xms512m -Xmx512m")
+      .with_exposed_ports(9200)
+    )
     container.start()
   except Exception as exc:  # noqa: BLE001 - any failure here means no usable container runtime
     if os.environ.get("REQUIRE_DOCKER_TESTS") == "1":

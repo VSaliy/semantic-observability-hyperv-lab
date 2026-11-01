@@ -28,22 +28,26 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   real evidence.
 - **Mitigations:** JSON-Schema validation and dead-lettering of invalid events
   (`semantic-search/indexer/src/semantic_indexer/validation.py`). Documents are aggregates with
-  deterministic IDs, so repeating an event cannot multiply documents, and stored `contributions` and
-  `event_ids` are capped at `max_contributions_per_aggregate` (default 100, retaining the earliest
-  contribution and the most recent `max_contributions_per_aggregate - 1` contributions while keeping
-  total `occurrences` accurate) so a noisy template cannot grow a single document without bound
-  (`semantic_indexer/documents.py`, `semantic_indexer/service.py`). The cosine floor
-  `query.min-semantic-similarity` (`application.yaml`, applied in
-  `infrastructure/OpenSearchGateway.java`) stops unrelated vectors from padding results. The query API
-  also validates `query.default-time-range` and `query.max-time-range` at startup (default `PT168H`,
-  rejecting non-positive or excessive `timeRange` values) and enforces a per-tenant sliding-window
-  rate limit (`query.rate-limit-per-minute`, default 120, `application/TenantRateLimiter.java`,
-  incrementing `query_api_rate_limited_total` and returning HTTP 429 with a `Retry-After` header).
-  Poison stays inside the producing tenant because of the tenant filter.
+  deterministic IDs, so repeating an event cannot multiply documents. Stored `contributions` are
+  capped at `max_contributions_per_aggregate` (default 100, retaining the earliest contribution and
+  the most recent `max_contributions_per_aggregate - 1` contributions while keeping total
+  `occurrences` accurate) so a noisy template cannot grow a single document without bound, while
+  duplicate detection is decoupled and tracked across a separate bounded list of up to
+  `max_tracked_event_ids_per_aggregate` (default 1000) seen event IDs, ensuring redeliveries within
+  the last N events per aggregate are absorbed (`semantic_indexer/documents.py`,
+  `semantic_indexer/service.py`, ADR-0004). The cosine floor `query.min-semantic-similarity`
+  (`application.yaml`, applied in `infrastructure/OpenSearchGateway.java`) stops unrelated vectors
+  from padding results. The query API also validates `query.default-time-range` and
+  `query.max-time-range` at startup (default `PT168H`, rejecting non-positive or excessive `timeRange`
+  values) and enforces a per-tenant sliding-window rate limit (`query.rate-limit-per-minute`, default
+  120, `application/TenantRateLimiter.java`, incrementing `query_api_rate_limited_total` and returning
+  HTTP 429 with a `Retry-After` header). Poison stays inside the producing tenant because of the
+  tenant filter.
 - **Tests:** `test_invalid_event_reaches_dead_letter_topic`,
   `test_poison_messages_do_not_block_following_payloads`, `test_duplicate_delivery_creates_no_duplicate`,
   `test_log_events_with_same_template_aggregate`,
-  `test_aggregate_size_is_capped_while_occurrences_continue_counting`
+  `test_aggregate_size_is_capped_while_occurrences_continue_counting`,
+  `test_redelivering_trimmed_event_is_detected_as_duplicate_within_tracking_window`
   (`semantic-search/indexer/tests/test_event_processor.py`),
   `test_aggregate_document_caps_contributions_while_preserving_first_and_latest`
   (`semantic-search/indexer/tests/test_documents.py`), and `TenantRateLimiterTest`,
@@ -112,17 +116,23 @@ and the credentials and tokens that gate access. Anything marked *future work* i
 
 - **Asset / attacker:** secrets and personal data in telemetry. Anyone with read access to the
   index, the dead-letter topic, logs or a third-party embedding provider is the attacker.
-- **Mitigations:** attribute values whose key contains `password`, `secret`, `token`,
-  `authorization`, `connection` or `cookie` are replaced before indexing, embedding and
-  every dead letter, including events that fail validation (`semantic_indexer/redaction.py`,
-  `semantic_indexer/service.py`). Value patterns are also scanned in the event `summary` and in every
-  string attribute value: private-key blocks, JWTs, `Bearer` tokens, AWS access key IDs, GitHub
-  tokens, e-mail addresses and `password=`/`token:`-style assignments. Evidence URLs (`evidence[].url`)
-  have sensitive query parameters (`token`, `secret`, `password`, `api_key`, `key`, `sig`, `signature`,
-  `authorization`, `cookie`, `connection`, `session`) and secret value patterns redacted with an
-  RFC 3986-safe token (`REDACTED`) before indexing and dead-lettering. The embedding input is the
-  redacted aggregate text. Messages that are not JSON objects are dead-lettered as a size, SHA-256
-  and origin only, never their bytes.
+- **Mitigations:** attribute values whose key contains sensitive markers are replaced before
+  indexing, embedding and dead-lettering (`semantic_indexer/redaction.py`, `semantic_indexer/service.py`).
+  Matching is performed on key segments split by `.`, `_`, `-` and camelCase boundaries
+  (`is_sensitive_key`), avoiding false-positive redaction of innocuous operational keys such as
+  `db.connection.state` and `tokens_used` while consistently redacting `password`, `client_secret`,
+  `access_token`, `connection_string`, `Authorization`, and `set-cookie`. Value patterns are scanned
+  in the event `summary` and in string attributes: private-key blocks, JWTs, `Bearer` tokens, AWS
+  access keys, GitHub tokens, e-mail addresses (bounded with alphabetic TLDs to eliminate ReDoS) and
+  assignment patterns (`password=`/`token:`, requiring secret-like shapes to prevent redacting ordinary
+  prose such as `refresh token: connection refused`). Free-text fields enforce input length caps at
+  validation (4 KiB for summary, 8 KiB for attribute string values) so regular expressions never run
+  on unbounded payloads. Evidence URLs (`evidence[].url`) have user credentials stripped from `netloc`
+  (`userinfo@`) and sensitive query parameters redacted with an RFC 3986-safe token (`REDACTED`).
+  Dead-letter messages pass the failure `reason` through `redact_text` and truncate to 500 characters,
+  and validation errors omit input values so sensitive inputs in rejected events never leak in dead letters.
+  The embedding input is the redacted aggregate text. Messages that are not JSON objects or that
+  exceed size/depth limits are dead-lettered as a size, SHA-256 and origin only, never their bytes.
 - **Tests:** `test_redacted_values_never_reach_opensearch`,
   `test_sensitive_value_patterns_are_redacted`, `test_ordinary_text_is_unchanged`,
   `test_summary_and_attributes_are_redacted_before_index_and_embedding`,
@@ -131,7 +141,14 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   `test_evidence_urls_are_redacted_before_indexing_and_dead_lettering`,
   `test_embedding_failure_dead_letter_payload_is_redacted`,
   `test_validation_failure_dead_letter_is_redacted`,
-  `test_undecodable_message_is_dead_lettered_without_content_and_committed`.
+  `test_undecodable_message_is_dead_lettered_without_content_and_committed`,
+  `test_email_pattern_bounded_and_requires_alpha_tld`,
+  `test_assignment_pattern_distinguishes_secrets_from_prose`,
+  `test_sensitive_key_segment_matching`,
+  `test_redact_evidence_url_strips_userinfo`,
+  `test_adversarial_redos_performance`,
+  `test_free_text_length_caps_at_validation`,
+  `test_secret_in_rejected_payload_does_not_appear_in_dead_letter_reason_or_payload`.
 - **Gaps (future work):** pattern scanning is best effort: names, addresses, card numbers and
   secrets without a recognisable shape are not detected, and `service`
   fields and identifiers are not scanned. Add schema-level data classification and a
@@ -196,14 +213,21 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   `EventProcessor.process_payload` returns, so delivery is at-least-once
   (`semantic_indexer/runtime.py`). If processing raises, nothing is committed and the message is
   redelivered after restart. Aggregates are rebuilt from per-event contributions, skip known event IDs
-  and use optimistic-concurrency writes, so redelivery and full replays converge on the same
-  documents (`semantic_indexer/service.py`, `semantic_indexer/opensearch_io.py`, ADR-0004).
+  within a bounded deduplication window (`max_tracked_event_ids_per_aggregate`, default 1000) and use
+  optimistic-concurrency writes, so redelivery and full replays converge on the same documents
+  (`semantic_indexer/service.py`, `semantic_indexer/opensearch_io.py`, ADR-0004). Messages that are not
+  JSON objects, exceed message size limits (1 MiB), or exceed JSON nesting depth (32) are caught
+  before deep processing (including `RecursionError` guards in `decode_message`), dead-lettered as
+  digest/metadata only, and committed to prevent unhandled poison-message crash loops. Furthermore,
+  dead-letter publishing verifies broker receipt (`future.get(timeout=...)`) before committing offsets,
+  preventing silent message loss if the dead-letter broker is unreachable.
 - **Tests:** `test_runtime_commits.py` (commit after success, none on failure, dead letters
-  committed); `test_duplicate_delivery_creates_no_duplicate`,
-  `test_aggregates_do_not_depend_on_delivery_order`, `test_write_conflict_is_retried`,
-  `test_replayed_events_converge_on_aggregates`, `test_stale_write_is_rejected`.
-  A message that is not a JSON object is dead-lettered and committed, so one poison message cannot
-  block its partition.
+  committed, failed dead-letter delivery prevents offset commit);
+  `test_duplicate_delivery_creates_no_duplicate`, `test_aggregates_do_not_depend_on_delivery_order`,
+  `test_write_conflict_is_retried`, `test_replayed_events_converge_on_aggregates`,
+  `test_stale_write_is_rejected`, `test_deeply_nested_json_is_rejected_and_committed`,
+  `test_nested_structure_exceeding_max_depth_is_rejected`,
+  `test_oversized_payload_is_rejected_as_undecodable_and_committed`.
 - **Gaps (future work):** a replay with a *new* `eventId` is
   indistinguishable from a new event. Commits are per message and synchronous, trading throughput for
   simplicity.

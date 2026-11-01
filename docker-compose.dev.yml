@@ -2,6 +2,7 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.7.1
     container_name: semantic-lab-kafka
+    restart: unless-stopped
     ports:
       - "9092:9092"
     environment:
@@ -37,6 +38,7 @@ services:
   opensearch:
     image: opensearchproject/opensearch:2.17.0
     container_name: semantic-lab-opensearch
+    restart: unless-stopped
     environment:
       discovery.type: single-node
       # Read by the image entrypoint; it skips the demo-security installer and passes
@@ -70,6 +72,7 @@ services:
     build:
       context: ./semantic-search/indexer
       dockerfile: Dockerfile
+    restart: unless-stopped
     command: ["uvicorn", "semantic_embedding_service.app:app", "--host", "0.0.0.0", "--port", "8090"]
     environment:
       PYTHONPATH: /app/src
@@ -80,6 +83,7 @@ services:
     build:
       context: ./semantic-search/indexer
       dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -102,6 +106,7 @@ services:
     build:
       context: ./semantic-search/query-api
       dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       opensearch-init:
         condition: service_completed_successfully

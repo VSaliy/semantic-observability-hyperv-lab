@@ -9,6 +9,7 @@ from typing import Any, Protocol
 
 from semantic_indexer.documents import (
   MAX_CONTRIBUTIONS_PER_AGGREGATE,
+  MAX_TRACKED_EVENT_IDS_PER_AGGREGATE,
   aggregate_document,
   build_contribution,
   deterministic_document_id,
@@ -55,6 +56,9 @@ class ProcessorResult:
   dead_lettered: int = 0
 
 
+MAX_DEAD_LETTER_REASON_LENGTH = 500
+
+
 class EventProcessor:
   def __init__(
     self,
@@ -65,8 +69,20 @@ class EventProcessor:
     dead_letter_topic: str,
     max_embedding_retries: int,
     max_write_attempts: int = 3,
-    max_contributions_per_aggregate: int = MAX_CONTRIBUTIONS_PER_AGGREGATE
+    max_contributions_per_aggregate: int = MAX_CONTRIBUTIONS_PER_AGGREGATE,
+    max_tracked_event_ids_per_aggregate: int | None = None
   ) -> None:
+    if max_contributions_per_aggregate < 1:
+      raise ValueError("max_contributions_per_aggregate must be at least 1")
+    resolved_max_tracked = (
+      max(MAX_TRACKED_EVENT_IDS_PER_AGGREGATE, max_contributions_per_aggregate)
+      if max_tracked_event_ids_per_aggregate is None
+      else max_tracked_event_ids_per_aggregate
+    )
+    if resolved_max_tracked < max_contributions_per_aggregate:
+      raise ValueError(
+        "max_tracked_event_ids_per_aggregate must be at least max_contributions_per_aggregate"
+      )
     self._validator = validator
     self._embedding_provider = embedding_provider
     self._store = store
@@ -75,6 +91,7 @@ class EventProcessor:
     self._max_embedding_retries = max_embedding_retries
     self._max_write_attempts = max_write_attempts
     self._max_contributions_per_aggregate = max_contributions_per_aggregate
+    self._max_tracked_event_ids_per_aggregate = resolved_max_tracked
 
   def process_payload(self, payload: dict[str, Any]) -> ProcessorResult:
     with PROCESSING_LATENCY.time():
@@ -102,7 +119,8 @@ class EventProcessor:
     for _ in range(self._max_write_attempts):
       stored = self._store.get(document_id)
       existing = stored.document.contributions if stored else []
-      if any(item.event_id == event.eventId for item in existing):
+      tracked_ids = stored.document.event_ids if stored else []
+      if event.eventId in tracked_ids or any(item.event_id == event.eventId for item in existing):
         DUPLICATE_EVENTS.inc()
         return ProcessorResult(duplicates=1)
       prior_occurrences = stored.document.occurrences + 1 if stored else 1
@@ -113,6 +131,8 @@ class EventProcessor:
         event.environment,
         [*existing, contribution],
         max_contributions=self._max_contributions_per_aggregate,
+        max_tracked_event_ids=self._max_tracked_event_ids_per_aggregate,
+        known_event_ids=tracked_ids,
         prior_occurrences=prior_occurrences
       )
       vector = self._embed_with_retries(document.semantic_text)
@@ -165,8 +185,9 @@ class EventProcessor:
 
   def _publish_dead_letter(self, payload: dict[str, Any], reason: str) -> None:
     DEAD_LETTER_EVENTS.inc()
+    sanitized_reason = redact_text(reason)[:MAX_DEAD_LETTER_REASON_LENGTH]
     self._dead_letter_producer.send(
       self._dead_letter_topic,
-      {"reason": reason, "payload": redact_value(payload)},
+      {"reason": sanitized_reason, "payload": redact_value(payload)},
       key=payload.get("tenantId") or payload.get("eventId")
     )
