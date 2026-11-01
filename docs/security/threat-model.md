@@ -109,18 +109,23 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   every dead letter, including events that fail validation (`semantic_indexer/redaction.py`,
   `semantic_indexer/service.py`). Value patterns are also scanned in the event `summary` and in every
   string attribute value: private-key blocks, JWTs, `Bearer` tokens, AWS access key IDs, GitHub
-  tokens, e-mail addresses and `password=`/`token:`-style assignments. The embedding input is the
+  tokens, e-mail addresses and `password=`/`token:`-style assignments. Evidence URLs (`evidence[].url`)
+  have sensitive query parameters (`token`, `secret`, `password`, `api_key`, `key`, `sig`, `signature`,
+  `authorization`, `cookie`, `connection`, `session`) and secret value patterns redacted with an
+  RFC 3986-safe token (`REDACTED`) before indexing and dead-lettering. The embedding input is the
   redacted aggregate text. Messages that are not JSON objects are dead-lettered as a size, SHA-256
   and origin only, never their bytes.
 - **Tests:** `test_redacted_values_never_reach_opensearch`,
   `test_sensitive_value_patterns_are_redacted`, `test_ordinary_text_is_unchanged`,
   `test_summary_and_attributes_are_redacted_before_index_and_embedding`,
   `test_dead_letter_summary_is_redacted`,
+  `test_redact_evidence_url_preserves_safe_params_and_redacts_secrets`,
+  `test_evidence_urls_are_redacted_before_indexing_and_dead_lettering`,
   `test_embedding_failure_dead_letter_payload_is_redacted`,
   `test_validation_failure_dead_letter_is_redacted`,
   `test_undecodable_message_is_dead_lettered_without_content_and_committed`.
 - **Gaps (future work):** pattern scanning is best effort: names, addresses, card numbers and
-  secrets without a recognisable shape are not detected, and evidence URLs, `service`
+  secrets without a recognisable shape are not detected, and `service`
   fields and identifiers are not scanned. Add schema-level data classification and a
   retention policy.
 
