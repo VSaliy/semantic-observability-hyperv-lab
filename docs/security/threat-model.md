@@ -152,14 +152,23 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   `application-dev.yaml`). There is no default secret anywhere else, the profile logs a warning at
   startup, and the secret must be at least 32 bytes. The profile alone is not enough: the decoder
   also requires `query.allow-dev-auth=true` (`QUERY_API_ALLOW_DEV_AUTH`), which only
-  `docker-compose.dev.yml` sets, so a stray `SPRING_PROFILES_ACTIVE=dev` fails at startup. The
-  `shell-and-security` CI job fails if any file other than the dev compose file, the dev profile
-  yaml, tests and docs references the dev profile or that flag.
+  `docker-compose.dev.yml` sets, so a stray `SPRING_PROFILES_ACTIVE=dev` fails at startup. Conversely,
+  setting `query.allow-dev-auth=true` outside the `dev` profile fails startup in
+  `security/SecurityConfiguration.java`, and `security/DevJwtConfiguration.java` refuses to start if
+  `dev` is combined with any non-dev profile or if `KUBERNETES_SERVICE_HOST` is present in the
+  environment. In CI, `scripts/validation/validate-kubernetes.py` rejects any Kubernetes manifest that
+  enables the `dev` profile or `query.allow-dev-auth`, and the `shell-and-security` job fails if any
+  file other than the dev compose file, the dev profile yaml, tests and docs references the dev
+  profile or that flag.
 - **Tests:** `DevProfileAuthenticationTest`, `ResourceServerAuthenticationTest`,
-  `StartupWithoutJwtConfigurationTest.devProfileAloneIsNotEnough`.
-- **Gaps (future work):** an operator who sets both the profile and the flag in a shared environment
-  still gets the public secret; add a deployment-policy check (an admission rule on rendered
-  manifests) once there are deployment manifests for the API.
+  `StartupWithoutJwtConfigurationTest.devProfileAloneIsNotEnough`,
+  `StartupWithoutJwtConfigurationTest.failsWhenAllowDevAuthIsEnabledOutsideDevProfile`,
+  `StartupWithoutJwtConfigurationTest.failsWhenDevProfileIsCombinedWithDeploymentProfile`,
+  `StartupWithoutJwtConfigurationTest.failsWhenDevProfileRunsInsideKubernetesCluster`.
+- **Gaps (future work):** an operator on a non-Kubernetes VM host who explicitly sets only the `dev`
+  profile and `query.allow-dev-auth=true` without `KUBERNETES_SERVICE_HOST` can still start the API in
+  dev mode; enforce cluster-side admission policy (e.g. Kyverno/Gatekeeper) once cluster admission
+  controllers are deployed.
 
 ### 8. Kafka redelivery and replay
 
