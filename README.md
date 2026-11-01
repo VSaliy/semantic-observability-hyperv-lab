@@ -132,14 +132,14 @@ See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.
 
 ## Security and tenant isolation
 
-- Tenant identity is derived only from authenticated JWT claims.
-- The search request payload never accepts `tenantId`.
-- OpenSearch queries apply server-side tenant and time filters.
+- Tenant identity is derived only from authenticated JWT claims; the search request payload rejects unknown fields such as `tenantId`.
+- OpenSearch queries apply server-side tenant and time filters, and aggregate documents are bounded (`max_contributions_per_aggregate`, default `100`) and never merged across tenants.
 - Semantic candidates below a cosine-similarity floor (`query.min-semantic-similarity`, default `0.5`) are dropped inside OpenSearch, so vector search cannot pad results with unrelated documents.
-- `TenantIsolationIntegrationTest` proves isolation against a real OpenSearch container (Testcontainers) in all three search modes; it is skipped when no Docker-compatible runtime is available.
-- Evidence URLs are validated against an allowlist.
-- Sensitive fields are redacted before indexing or embedding.
-- The shared-secret HS256 login exists only under the `dev` Spring profile (set by `docker-compose.dev.yml`). Any other profile must configure `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri`, otherwise the query API refuses to start.
+- `TenantIsolationIntegrationTest` proves isolation against a real OpenSearch container (Testcontainers) in all three search modes; CI fails if it is skipped.
+- Evidence URLs are validated at ingestion and re-checked at query time against per-tenant host allowlists (`tenant_valid_evidence_hosts` / `query.tenant-valid-evidence-hosts`, falling back to `valid_evidence_hosts`), and dropped links increment `query_api_evidence_links_dropped_total` (`QueryApiEvidenceLinksDropped` alert).
+- Sensitive attribute keys and secret-shaped value patterns (private keys, JWTs, bearer tokens, AWS keys, GitHub tokens, e-mail addresses, credential assignments) in summaries and string attributes are redacted before indexing, embedding, and dead-lettering.
+- Outside the `dev` profile, the query API requires `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri`, mandatory audience validation (`spring.security.oauth2.resourceserver.jwt.audiences`), and non-blank `jti` replay detection (`JtiReplayValidator`).
+- The shared-secret HS256 login exists only when both `SPRING_PROFILES_ACTIVE=dev` and `QUERY_API_ALLOW_DEV_AUTH=true` are set (`docker-compose.dev.yml`), refuses to start if `dev` is combined with another profile or inside a Kubernetes cluster (`KUBERNETES_SERVICE_HOST`), and is rejected in Kubernetes manifests by `scripts/validation/validate-kubernetes.py`.
 - Containers run as non-root (UID/GID 10001), and the indexer commits Kafka offsets only after an event is handled.
 - See the [threat model](docs/security/threat-model.md) for threats, mitigations and remaining gaps.
 
