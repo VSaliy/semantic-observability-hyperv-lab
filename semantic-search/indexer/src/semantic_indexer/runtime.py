@@ -126,7 +126,8 @@ class KafkaEventRuntime:
       store=OpenSearchDocumentStore(settings.opensearch_url, settings.opensearch_index_alias),
       dead_letter_producer=JsonDeadLetterProducer(producer),
       dead_letter_topic=settings.kafka_dead_letter_topic,
-      max_embedding_retries=settings.max_embedding_retries
+      max_embedding_retries=settings.max_embedding_retries,
+      max_contributions_per_aggregate=settings.max_contributions_per_aggregate
     )
 
   def run_forever(self) -> None:

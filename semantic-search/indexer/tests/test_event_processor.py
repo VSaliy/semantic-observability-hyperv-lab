@@ -99,7 +99,10 @@ def validator() -> EventValidator:
 
 
 def build_processor(
-  validator: EventValidator, embedder: Any | None = None, store: InMemoryStore | None = None
+  validator: EventValidator,
+  embedder: Any | None = None,
+  store: InMemoryStore | None = None,
+  max_contributions_per_aggregate: int = 100
 ) -> tuple[EventProcessor, InMemoryStore, InMemoryProducer]:
   store = store or InMemoryStore()
   producer = InMemoryProducer()
@@ -109,7 +112,8 @@ def build_processor(
     store=store,
     dead_letter_producer=producer,
     dead_letter_topic="semantic.dead-letter",
-    max_embedding_retries=3
+    max_embedding_retries=3,
+    max_contributions_per_aggregate=max_contributions_per_aggregate
   )
   return processor, store, producer
 
@@ -335,3 +339,29 @@ def test_exhausted_write_conflicts_dead_letter_the_event(
   result = processor.process_payload(events["evt-0001"])
   assert result.dead_lettered == 1
   assert producer.messages[0]["value"]["reason"] == "write conflicts exhausted"
+
+
+def test_aggregate_size_is_capped_while_occurrences_continue_counting(
+  events: dict[str, dict[str, Any]], validator: EventValidator
+) -> None:
+  processor, store, producer = build_processor(
+    validator,
+    max_contributions_per_aggregate=2
+  )
+  result = processor.process_messages(
+    events[event_id] for event_id in ("evt-0002", "evt-0010", "evt-0011")
+  )
+  assert result.indexed == 3
+  assert not producer.messages
+  (document,) = store.of_type("log_template")
+  assert document["occurrences"] == 3
+  assert len(document["contributions"]) == 2
+  assert [item["event_id"] for item in document["contributions"]] == ["evt-0002", "evt-0011"]
+  assert document["event_ids"] == ["evt-0002", "evt-0011"]
+  assert document["first_seen"] == "2026-07-01T10:00:00Z"
+  assert document["last_seen"] == "2026-07-01T10:04:00Z"
+  assert "3 occurrences" in document["summary"]
+  duplicate = processor.process_payload(events["evt-0011"])
+  assert duplicate.duplicates == 1
+  (after_duplicate,) = store.of_type("log_template")
+  assert after_duplicate["occurrences"] == 3

@@ -28,17 +28,24 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   real evidence.
 - **Mitigations:** JSON-Schema validation and dead-lettering of invalid events
   (`semantic-search/indexer/src/semantic_indexer/validation.py`). Documents are aggregates with
-  deterministic IDs, so repeating an event cannot multiply documents
+  deterministic IDs, so repeating an event cannot multiply documents, and stored `contributions` and
+  `event_ids` are capped at `max_contributions_per_aggregate` (default 100, retaining the earliest
+  contribution and the most recent `max_contributions_per_aggregate - 1` contributions while keeping
+  total `occurrences` accurate) so a noisy template cannot grow a single document without bound
   (`semantic_indexer/documents.py`, `semantic_indexer/service.py`). The cosine floor
   `query.min-semantic-similarity` (`application.yaml`, applied in
   `infrastructure/OpenSearchGateway.java`) stops unrelated vectors from padding results. Poison stays
   inside the producing tenant because of the tenant filter.
 - **Tests:** `test_invalid_event_reaches_dead_letter_topic`,
   `test_poison_messages_do_not_block_following_payloads`, `test_duplicate_delivery_creates_no_duplicate`,
-  `test_log_events_with_same_template_aggregate` (`semantic-search/indexer/tests/test_event_processor.py`).
+  `test_log_events_with_same_template_aggregate`,
+  `test_aggregate_size_is_capped_while_occurrences_continue_counting`
+  (`semantic-search/indexer/tests/test_event_processor.py`), and
+  `test_aggregate_document_caps_contributions_while_preserving_first_and_latest`
+  (`semantic-search/indexer/tests/test_documents.py`).
 - **Gaps (future work):** producer authentication and authorisation on Kafka (any client that can
-  reach the broker can publish for any `tenantId`); per-tenant rate limits; caps on aggregate size;
-  ranking signals that discount unverified sources.
+  reach the broker can publish for any `tenantId`); per-tenant rate limits; ranking signals that
+  discount unverified sources.
 
 ### 2. Cross-tenant leakage
 

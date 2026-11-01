@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
-from semantic_indexer.documents import normalize_template
+from semantic_indexer.documents import aggregate_document, normalize_template
 from semantic_indexer.embeddings import CachingEmbeddingProvider, DeterministicEmbeddingProvider
+from semantic_indexer.models import Contribution
 
 
 @pytest.mark.parametrize(
@@ -70,3 +73,38 @@ def test_caching_embedder_does_not_cache_failures() -> None:
     with pytest.raises(RuntimeError):
       cache.embed("text")
   assert delegate.calls == 2
+
+
+def test_aggregate_document_caps_contributions_while_preserving_first_and_latest() -> None:
+  start = datetime(2026, 7, 1, 10, 0, tzinfo=UTC)
+  contributions = [
+    Contribution(
+      event_id=f"evt-{index:04d}",
+      event_type="application.error",
+      timestamp=start + timedelta(seconds=index),
+      summary=f"Database connection acquisition timeout exceeded {30 + index} seconds.",
+      severity="ERROR",
+      service_name="trade-api",
+      service_namespace="trading",
+      service_version="2.4.1",
+      template="Database connection acquisition timeout exceeded <duration>.",
+      evidence=[]
+    )
+    for index in range(1, 6)
+  ]
+  document = aggregate_document(
+    "doc-0001",
+    "log_template",
+    "trading",
+    "production",
+    contributions,
+    max_contributions=3,
+    prior_occurrences=5
+  )
+  assert document.occurrences == 5
+  assert len(document.contributions) == 3
+  assert [item.event_id for item in document.contributions] == ["evt-0001", "evt-0004", "evt-0005"]
+  assert document.event_ids == ["evt-0001", "evt-0004", "evt-0005"]
+  assert document.first_seen == start + timedelta(seconds=1)
+  assert document.last_seen == start + timedelta(seconds=5)
+  assert "5 occurrences" in document.summary

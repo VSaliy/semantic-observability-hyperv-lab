@@ -18,6 +18,7 @@ class IndexerSettings(BaseSettings):
   poll_timeout_seconds: float = 1.0
   startup_backoff_seconds: float = 2.0
   enable_metrics_server: bool = True
+  max_contributions_per_aggregate: int = 100
   schema_path: str = "/app/schemas/operational-event.schema.json"
   valid_evidence_hosts: list[str] = Field(
     default_factory=lambda: ["grafana.example", "kafka.example", "opensearch.example"]

@@ -39,6 +39,7 @@ STATUS_BY_EVENT_TYPE = {
 }
 
 SEVERITY_RANK = {"INFO": 0, "WARN": 1, "ERROR": 2, "CRITICAL": 3}
+MAX_CONTRIBUTIONS_PER_AGGREGATE = 100
 
 # Applied in order: specific shapes first, bare numbers last.
 _TEMPLATE_MASKS = (
@@ -127,20 +128,35 @@ def aggregate_document(
   document_type: str,
   tenant_id: str,
   environment: str,
-  contributions: Iterable[Contribution]
+  contributions: Iterable[Contribution],
+  *,
+  max_contributions: int = MAX_CONTRIBUTIONS_PER_AGGREGATE,
+  prior_occurrences: int = 0
 ) -> SemanticDocument:
   """Rebuild an aggregate from its contributions.
 
   The result depends only on the set of contributions, never on delivery order, so Kafka
-  redelivery and replay converge on the same document.
+  redelivery and replay converge on the same document. When an aggregate exceeds
+  `max_contributions`, the earliest contribution and the most recent `max_contributions - 1`
+  contributions are kept so `first_seen`, initial incident context and recent state remain bounded.
   """
+  if max_contributions < 1:
+    raise ValueError("max_contributions must be at least 1")
   by_event = {contribution.event_id: contribution for contribution in contributions}
   ordered = sorted(by_event.values(), key=lambda item: (item.timestamp, item.event_id))
   if not ordered:
     raise ValueError("an aggregate needs at least one contribution")
-  first, last = ordered[0], ordered[-1]
-  services = sorted({service for item in ordered for service in item.services})
-  namespaces = {item.service_namespace for item in ordered}
+  total_occurrences = max(len(ordered), prior_occurrences)
+  if len(ordered) > max_contributions:
+    if max_contributions == 1:
+      retained = [ordered[-1]]
+    else:
+      retained = [ordered[0], *ordered[-(max_contributions - 1):]]
+  else:
+    retained = ordered
+  first, last = retained[0], retained[-1]
+  services = sorted({service for item in retained for service in item.services})
+  namespaces = {item.service_namespace for item in retained}
   document = SemanticDocument(
     document_id=document_id,
     document_type=document_type,
@@ -152,31 +168,31 @@ def aggregate_document(
     service_name=last.service_name,
     service_namespace=last.service_namespace,
     service_version=last.service_version,
-    severity=max((item.severity for item in ordered), key=lambda value: SEVERITY_RANK[value]),
-    status=_newest(ordered, "status"),
-    change_id=_newest(ordered, "change_id"),
+    severity=max((item.severity for item in retained), key=lambda value: SEVERITY_RANK[value]),
+    status=_newest(retained, "status"),
+    change_id=_newest(retained, "change_id"),
     event_id=last.event_id,
-    event_ids=[item.event_id for item in sorted(ordered, key=lambda item: item.event_id)],
-    occurrences=len(ordered),
-    trace_id=_newest(ordered, "trace_id"),
-    incident_id=_newest(ordered, "incident_id"),
-    alert_name=_newest(ordered, "alert_name"),
-    template=_newest(ordered, "template"),
-    exception_type=_newest(ordered, "exception_type"),
-    cause=_newest(ordered, "cause"),
-    resolution=_newest(ordered, "resolution"),
-    change_summary=_newest(ordered, "change_summary"),
+    event_ids=[item.event_id for item in sorted(retained, key=lambda item: item.event_id)],
+    occurrences=total_occurrences,
+    trace_id=_newest(retained, "trace_id"),
+    incident_id=_newest(retained, "incident_id"),
+    alert_name=_newest(retained, "alert_name"),
+    template=_newest(retained, "template"),
+    exception_type=_newest(retained, "exception_type"),
+    cause=_newest(retained, "cause"),
+    resolution=_newest(retained, "resolution"),
+    change_summary=_newest(retained, "change_summary"),
     services=services,
-    symptoms=sorted({symptom for item in ordered for symptom in item.symptoms}),
-    critical_path=_newest(ordered, "critical_path") or [],
+    symptoms=sorted({symptom for item in retained for symptom in item.symptoms}),
+    critical_path=_newest(retained, "critical_path") or [],
     topology_entities=sorted({*services, *namespaces}),
     summary="",
     semantic_text="",
-    source_references=_merge_evidence(ordered),
-    contributions=ordered
+    source_references=_merge_evidence(retained),
+    contributions=retained
   )
   document.summary = _render_summary(document, first, last)
-  document.semantic_text = _render_semantic_text(document, ordered)
+  document.semantic_text = _render_semantic_text(document, retained)
   return document
 
 
