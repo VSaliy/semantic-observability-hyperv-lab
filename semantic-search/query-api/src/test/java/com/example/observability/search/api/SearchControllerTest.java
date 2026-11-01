@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.example.observability.search.application.ScoredResult;
 import com.example.observability.search.application.SearchCriteria;
+import com.example.observability.search.application.TenantRateLimitExceededException;
 import com.example.observability.search.application.TenantSearchService;
 import com.example.observability.search.application.TenantSearchService.SearchExecution;
 import com.example.observability.search.domain.EvidenceLink;
@@ -116,5 +117,26 @@ class SearchControllerTest {
                 """))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.title").value("Invalid search request"));
+  }
+
+  @Test
+  void returnsTooManyRequestsWhenTenantRateLimitIsExceeded() throws Exception {
+    when(tenantSearchService.search(eq("slow requests"), eq("production"), any(), eq(5), eq(SearchMode.HYBRID), any()))
+        .thenThrow(new TenantRateLimitExceededException("trading"));
+
+    mockMvc.perform(post("/api/v1/search")
+            .with(jwt().jwt(jwt -> jwt.claim("tenant", "trading").issuer("http://localhost:8080/dev-issuer")))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "query": "slow requests",
+                  "environment": "production",
+                  "timeRange": "PT2H",
+                  "topK": 5,
+                  "mode": "HYBRID"
+                }
+                """))
+        .andExpect(status().isTooManyRequests())
+        .andExpect(jsonPath("$.title").value("Rate limit exceeded"));
   }
 }

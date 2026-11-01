@@ -34,18 +34,23 @@ and the credentials and tokens that gate access. Anything marked *future work* i
   total `occurrences` accurate) so a noisy template cannot grow a single document without bound
   (`semantic_indexer/documents.py`, `semantic_indexer/service.py`). The cosine floor
   `query.min-semantic-similarity` (`application.yaml`, applied in
-  `infrastructure/OpenSearchGateway.java`) stops unrelated vectors from padding results. Poison stays
+  `infrastructure/OpenSearchGateway.java`) stops unrelated vectors from padding results. The query API
+  also bounds search windows (`query.max-time-range`, default `PT168H`, rejecting non-positive or
+  excessive `timeRange` values) and enforces a per-tenant sliding-window rate limit
+  (`query.rate-limit-per-minute`, default 120, `application/TenantRateLimiter.java`, incrementing
+  `query_api_rate_limited_total` and returning HTTP 429). Poison stays
   inside the producing tenant because of the tenant filter.
 - **Tests:** `test_invalid_event_reaches_dead_letter_topic`,
   `test_poison_messages_do_not_block_following_payloads`, `test_duplicate_delivery_creates_no_duplicate`,
   `test_log_events_with_same_template_aggregate`,
   `test_aggregate_size_is_capped_while_occurrences_continue_counting`
-  (`semantic-search/indexer/tests/test_event_processor.py`), and
+  (`semantic-search/indexer/tests/test_event_processor.py`),
   `test_aggregate_document_caps_contributions_while_preserving_first_and_latest`
-  (`semantic-search/indexer/tests/test_documents.py`).
+  (`semantic-search/indexer/tests/test_documents.py`), and `TenantRateLimiterTest`,
+  `TenantSearchServiceTest`, `SearchControllerTest.returnsTooManyRequestsWhenTenantRateLimitIsExceeded`.
 - **Gaps (future work):** producer authentication and authorisation on Kafka (any client that can
-  reach the broker can publish for any `tenantId`); per-tenant rate limits; ranking signals that
-  discount unverified sources.
+  reach the broker can publish for any `tenantId`); per-tenant ingestion rate limits on Kafka; ranking
+  signals that discount unverified sources.
 
 ### 2. Cross-tenant leakage
 
