@@ -6,14 +6,15 @@ import com.example.observability.search.application.TenantSearchService.SearchEx
 import java.net.URI;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
-import java.util.List;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -32,31 +33,37 @@ public class SearchController {
   }
 
   @PostMapping
-  public SearchResponse search(@Validated @RequestBody SearchRequest request,
-      @AuthenticationPrincipal Jwt jwt) {
+  public SearchResponse search(
+    @Validated @RequestBody SearchRequest request,
+    @AuthenticationPrincipal Jwt jwt
+  ) {
     SearchExecution execution = searchService.search(
-        sanitize(request.query()),
-        request.environment(),
-        Duration.parse(request.timeRange()),
-        request.topK(),
-        request.mode(),
-        jwt);
+      sanitize(request.query()),
+      request.environment(),
+      Duration.parse(request.timeRange()),
+      request.topK(),
+      request.mode(),
+      jwt
+    );
     return new SearchResponse(
-        execution.queryId(),
-        new SearchResponse.InterpretedFilters(
-            execution.criteria().tenantId(),
-            execution.criteria().environment(),
-            execution.criteria().from().toString(),
-            execution.criteria().to().toString()),
-        execution.results().stream()
-            .map(result -> new SearchResponse.ResultItem(
-                result.documentId(),
-                result.type(),
-                result.score(),
-                result.explanation(),
-                result.summary(),
-                result.evidence()))
-            .toList());
+      execution.queryId(),
+      new SearchResponse.InterpretedFilters(
+        execution.criteria().tenantId(),
+        execution.criteria().environment(),
+        execution.criteria().from().toString(),
+        execution.criteria().to().toString()
+      ),
+      execution.results().stream()
+        .map(result -> new SearchResponse.ResultItem(
+          result.documentId(),
+          result.type(),
+          result.score(),
+          result.explanation(),
+          result.summary(),
+          result.evidence()
+        ))
+        .toList()
+    );
   }
 
   private String sanitize(String query) {
@@ -64,10 +71,10 @@ public class SearchController {
   }
 
   @ExceptionHandler({
-      DateTimeParseException.class,
-      HttpMessageNotReadableException.class,
-      IllegalArgumentException.class,
-      MethodArgumentNotValidException.class
+    DateTimeParseException.class,
+    HttpMessageNotReadableException.class,
+    IllegalArgumentException.class,
+    MethodArgumentNotValidException.class
   })
   @ResponseStatus(HttpStatus.BAD_REQUEST)
   ProblemDetail invalidRequest(Exception exception) {
@@ -78,12 +85,15 @@ public class SearchController {
   }
 
   @ExceptionHandler(TenantRateLimitExceededException.class)
-  @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
-  ProblemDetail rateLimitExceeded(TenantRateLimitExceededException exception) {
+  ResponseEntity<ProblemDetail> rateLimitExceeded(TenantRateLimitExceededException exception) {
     ProblemDetail detail = ProblemDetail.forStatusAndDetail(
-        HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+      HttpStatus.TOO_MANY_REQUESTS,
+      exception.getMessage()
+    );
     detail.setTitle("Rate limit exceeded");
     detail.setType(URI.create("https://example.com/problems/rate-limit-exceeded"));
-    return detail;
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+      .header(HttpHeaders.RETRY_AFTER, Long.toString(exception.retryAfterSeconds()))
+      .body(detail);
   }
 }
