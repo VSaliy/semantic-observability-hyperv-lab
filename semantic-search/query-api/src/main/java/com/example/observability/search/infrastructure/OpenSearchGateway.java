@@ -10,7 +10,12 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
@@ -20,6 +25,8 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class OpenSearchGateway implements SearchGateway {
+  private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_-]+");
+
   private final RestClient restClient;
   private final OpenSearchConnectionProperties properties;
   private final ObjectMapper objectMapper = new ObjectMapper();
@@ -40,6 +47,26 @@ public class OpenSearchGateway implements SearchGateway {
   }
 
   private String buildKeywordQuery(SearchCriteria criteria, int limit) {
+    String expanded = expandStems(criteria.query());
+    String expandedClause = expanded.isEmpty()
+        ? ""
+        : """
+                  ,{
+                    "multi_match": {
+                      "query": %s,
+                      "fields": [
+                        "summary^2",
+                        "semantic_text",
+                        "change_summary^2",
+                        "cause^2",
+                        "resolution^2",
+                        "template",
+                        "symptoms",
+                        "document_type"
+                      ],
+                      "boost": 1.0
+                    }
+                  }""".formatted(json(expanded));
     return """
         {
           "size": %d,
@@ -51,15 +78,109 @@ public class OpenSearchGateway implements SearchGateway {
                 {"range": {"timestamp": {"gte": %s, "lte": %s}}}
               ],
               "must": [{
-                "multi_match": {
-                  "query": %s,
-                  "fields": ["summary^3", "semantic_text^2", "service_name", "change_id", "document_type"]
+                "bool": {
+                  "minimum_should_match": 1,
+                  "should": [
+                    {
+                      "multi_match": {
+                        "query": %s,
+                        "fields": [
+                          "summary^3",
+                          "semantic_text^2",
+                          "change_summary^3",
+                          "cause^2",
+                          "resolution^2",
+                          "template^2",
+                          "incident_id^4",
+                          "change_id^3",
+                          "alert_name^2",
+                          "service_name^2",
+                          "services",
+                          "symptoms^2",
+                          "critical_path^2",
+                          "exception_type",
+                          "document_type^2"
+                        ],
+                        "boost": 2.0
+                      }
+                    },
+                    {
+                      "nested": {
+                        "path": "source_references",
+                        "query": {
+                          "multi_match": {
+                            "query": %s,
+                            "fields": ["source_references.type^2"]
+                          }
+                        }
+                      }
+                    }%s
+                  ]
                 }
               }]
             }
           }
         }
-        """.formatted(limit, json(criteria.tenantId()), json(criteria.environment()), json(criteria.from().toString()), json(criteria.to().toString()), json(criteria.query()));
+        """.formatted(
+            limit,
+            json(criteria.tenantId()),
+            json(criteria.environment()),
+            json(criteria.from().toString()),
+            json(criteria.to().toString()),
+            json(criteria.query()),
+            json(criteria.query().toLowerCase(Locale.ROOT)),
+            expandedClause);
+  }
+
+  static String expandStems(String query) {
+    if (query == null || query.isBlank()) {
+      return "";
+    }
+    Matcher matcher = TOKEN_PATTERN.matcher(query);
+    List<String> words = new ArrayList<>();
+    Set<String> seen = new LinkedHashSet<>();
+    while (matcher.find()) {
+      String word = matcher.group();
+      words.add(word);
+      seen.add(word.toLowerCase(Locale.ROOT));
+    }
+    List<String> extra = new ArrayList<>();
+    for (String word : words) {
+      String stem = stemWord(word);
+      if (stem.length() >= 3 && seen.add(stem)) {
+        extra.add(stem);
+      }
+      if (!stem.endsWith("s") && stem.length() >= 4) {
+        String plural = stem + "s";
+        if (seen.add(plural)) {
+          extra.add(plural);
+        }
+      }
+    }
+    return String.join(" ", extra);
+  }
+
+  private static String stemWord(String word) {
+    String lower = word.toLowerCase(Locale.ROOT);
+    if (lower.length() <= 4) {
+      return lower;
+    }
+    if (lower.endsWith("ies") && lower.length() > 5) {
+      return lower.substring(0, lower.length() - 3) + "y";
+    }
+    if (lower.endsWith("ing") && lower.length() > 5) {
+      return lower.substring(0, lower.length() - 3);
+    }
+    if (lower.endsWith("ed") && lower.length() > 4) {
+      return lower.substring(0, lower.length() - 2);
+    }
+    if (lower.endsWith("es") && lower.length() > 4) {
+      return lower.substring(0, lower.length() - 2);
+    }
+    if (lower.endsWith("s") && !lower.endsWith("ss")) {
+      return lower.substring(0, lower.length() - 1);
+    }
+    return lower;
   }
 
   private String buildSemanticQuery(SearchCriteria criteria, List<Float> embedding, int limit) {
