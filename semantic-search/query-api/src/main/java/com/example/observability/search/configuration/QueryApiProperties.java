@@ -5,6 +5,7 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
+import java.util.Map;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -15,6 +16,7 @@ public record QueryApiProperties(
     @NotBlank String defaultTimeRange,
     @NotBlank String requiredTenantClaim,
     List<String> validEvidenceHosts,
+    Map<String, List<String>> tenantValidEvidenceHosts,
     @NotBlank String embeddingUrl,
     @NotBlank String opensearchUrl,
     @NotBlank String opensearchIndexAlias,

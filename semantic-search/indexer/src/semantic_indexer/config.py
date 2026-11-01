@@ -22,3 +22,10 @@ class IndexerSettings(BaseSettings):
   valid_evidence_hosts: list[str] = Field(
     default_factory=lambda: ["grafana.example", "kafka.example", "opensearch.example"]
   )
+  tenant_valid_evidence_hosts: dict[str, list[str]] = Field(
+    default_factory=lambda: {
+      "trading": ["grafana.example", "kafka.example", "opensearch.example"],
+      "market-data": ["grafana.example", "opensearch.example"],
+      "payments": ["grafana.example", "opensearch.example"],
+    }
+  )

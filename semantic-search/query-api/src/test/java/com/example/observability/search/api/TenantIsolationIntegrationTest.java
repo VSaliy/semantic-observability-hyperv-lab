@@ -105,7 +105,9 @@ class TenantIsolationIntegrationTest {
         document(MARKET_DATA_DOCUMENT_ID, "market-data", "network_event", "2026-07-01T10:15:00Z",
             "Unique phrase " + UNIQUE_PHRASE + " occurred for market-data tenant only.", PHRASE_VECTOR),
         withEvidence(document("trading-evidence", "trading", "log_template", "2026-07-01T10:20:00Z",
-            "Poisoned evidence marker quokka-ledger-7731 observed in risk-service.", unitVector(2))))) {
+            "Poisoned evidence marker quokka-ledger-7731 observed in risk-service.", unitVector(2))),
+        withEvidence(document("market-data-evidence", "market-data", "log_template", "2026-07-01T10:20:00Z",
+            "Poisoned evidence marker quokka-ledger-7731 observed in feed-handler.", unitVector(3))))) {
       bulk.append(MAPPER.writeValueAsString(Map.of("index", Map.of("_index", INDEX, "_id", document.get("document_id")))))
           .append('\n')
           .append(MAPPER.writeValueAsString(document))
@@ -145,6 +147,13 @@ class TenantIsolationIntegrationTest {
     search("trading", "quokka-ledger-7731", SearchMode.KEYWORD)
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.results", hasSize(1)))
+        .andExpect(jsonPath("$.results[0].evidence", hasSize(2)))
+        .andExpect(jsonPath("$.results[0].evidence[0].url").value("https://grafana.example/d/ok"))
+        .andExpect(jsonPath("$.results[0].evidence[1].url").value("https://kafka.example/topics/lag"));
+
+    search("market-data", "quokka-ledger-7731", SearchMode.KEYWORD)
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.results", hasSize(1)))
         .andExpect(jsonPath("$.results[0].evidence", hasSize(1)))
         .andExpect(jsonPath("$.results[0].evidence[0].url").value("https://grafana.example/d/ok"));
   }
@@ -153,6 +162,7 @@ class TenantIsolationIntegrationTest {
     Map<String, Object> copy = new java.util.HashMap<>(document);
     copy.put("source_references", List.of(
         Map.of("type", "log", "system", "grafana", "url", "https://grafana.example/d/ok"),
+        Map.of("type", "metric", "system", "kafka", "url", "https://kafka.example/topics/lag"),
         Map.of("type", "log", "system", "grafana", "url", "https://evil.test/phish"),
         Map.of("type", "log", "system", "grafana", "url", "javascript:alert(1)")));
     return copy;

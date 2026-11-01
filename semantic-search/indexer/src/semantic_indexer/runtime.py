@@ -109,7 +109,11 @@ class KafkaEventRuntime:
 
   @staticmethod
   def _build_processor(settings: IndexerSettings) -> EventProcessor:
-    validator = EventValidator(settings.schema_path, settings.valid_evidence_hosts)
+    validator = EventValidator(
+      settings.schema_path,
+      settings.valid_evidence_hosts,
+      settings.tenant_valid_evidence_hosts,
+    )
     producer = KafkaProducer(
       bootstrap_servers=settings.kafka_bootstrap_servers,
       value_serializer=lambda value: json.dumps(value).encode("utf-8")

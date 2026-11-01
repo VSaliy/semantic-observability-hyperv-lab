@@ -51,7 +51,7 @@ public class TenantSearchService {
         : searchGateway.semanticSearch(criteria, embedding, topK * 2);
     List<ScoredResult> results = scorer.score(criteria, keyword, semantic).stream()
         .map(result -> new ScoredResult(result.documentId(), result.type(), result.score(),
-            result.explanation(), result.summary(), evidencePolicy.allowed(result.evidence())))
+            result.explanation(), result.summary(), evidencePolicy.allowed(tenant, result.evidence())))
         .toList();
     sample.stop(meterRegistry.timer("query_api_latency", "mode", mode.name()));
     Counter.builder("query_api_zero_results_total").tag("mode", mode.name()).register(meterRegistry)
