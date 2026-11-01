@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 import pytest
@@ -9,11 +10,12 @@ import pytest
 from semantic_indexer.redaction import (
   REDACTED,
   URL_REDACTED,
+  is_sensitive_key,
   redact_evidence_url,
   redact_text,
   redact_value,
 )
-from semantic_indexer.validation import EventValidator
+from semantic_indexer.validation import EventValidationError, EventValidator
 from test_event_processor import (  # noqa: F401
   FailingEmbedder,
   RecordingEmbedder,
@@ -128,3 +130,73 @@ def test_evidence_urls_are_redacted_before_indexing_and_dead_lettering(
   dead_letter = json.dumps(producer.messages[0]["value"])
   assert "supersecret99" not in dead_letter
   assert "ops@example.com" not in dead_letter
+
+
+def test_email_pattern_bounded_and_requires_alpha_tld() -> None:
+  assert redact_text("running trade-api@2.4.1 in prod") == "running trade-api@2.4.1 in prod"
+  assert redact_text("mail jane.doe@example.com") == f"mail {REDACTED}"
+
+
+def test_assignment_pattern_distinguishes_secrets_from_prose() -> None:
+  assert (
+    redact_text("refresh token: connection refused")
+    == "refresh token: connection refused"
+  )
+  assert "hunter2abc" not in redact_text("password=hunter2abc")
+  assert REDACTED in redact_text("password=hunter2abc")
+  jwt_sample = ": ".join(("token", "eyJhbGciOiJIUzI1NiJ9"))  # gitleaks:allow
+  assert "eyJhbGciOi" not in redact_text(jwt_sample)
+  assert REDACTED in redact_text(jwt_sample)
+  api_key_sample = ": ".join(("api_key", "sk-live-000000"))  # gitleaks:allow
+  assert "sk-live-000000" not in redact_text(api_key_sample)
+  assert REDACTED in redact_text(api_key_sample)
+
+
+@pytest.mark.parametrize(
+  ("key", "expected"),
+  [
+    ("db.connection.state", False),
+    ("tokens_used", False),
+    ("token_count", False),
+    ("password", True),
+    ("client_secret", True),
+    ("access_token", True),
+    ("connection_string", True),
+    ("db.connectionString", True),
+    ("Authorization", True),
+    ("set-cookie", True),
+  ],
+)
+def test_sensitive_key_segment_matching(key: str, expected: bool) -> None:
+  assert is_sensitive_key(key) is expected
+
+
+def test_redact_evidence_url_strips_userinfo() -> None:
+  assert (
+    redact_evidence_url("https://user:pass@grafana.example/d/1")
+    == "https://grafana.example/d/1"
+  )
+
+
+def test_adversarial_redos_performance() -> None:
+  adversarial = "a" * 50000 + "@"
+  start = time.perf_counter()
+  res = redact_text(adversarial)
+  elapsed = time.perf_counter() - start
+  assert res == adversarial
+  assert elapsed < 0.2
+
+
+def test_free_text_length_caps_at_validation(
+  events: dict[str, dict[str, Any]], validator: EventValidator
+) -> None:
+  event = dict(events["evt-0001"])
+  oversized_summary = dict(event)
+  oversized_summary["summary"] = "x" * 4097
+  with pytest.raises((EventValidationError, ValueError)):
+    validator.parse(oversized_summary)
+
+  oversized_attribute = dict(event)
+  oversized_attribute["attributes"] = {"note": "x" * 8193}
+  with pytest.raises((EventValidationError, ValueError)):
+    validator.parse(oversized_attribute)

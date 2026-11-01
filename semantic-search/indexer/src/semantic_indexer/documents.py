@@ -40,6 +40,7 @@ STATUS_BY_EVENT_TYPE = {
 
 SEVERITY_RANK = {"INFO": 0, "WARN": 1, "ERROR": 2, "CRITICAL": 3}
 MAX_CONTRIBUTIONS_PER_AGGREGATE = 100
+MAX_TRACKED_EVENT_IDS_PER_AGGREGATE = 1000
 
 # Applied in order: specific shapes first, bare numbers last.
 _TEMPLATE_MASKS = (
@@ -131,6 +132,8 @@ def aggregate_document(
   contributions: Iterable[Contribution],
   *,
   max_contributions: int = MAX_CONTRIBUTIONS_PER_AGGREGATE,
+  max_tracked_event_ids: int = MAX_TRACKED_EVENT_IDS_PER_AGGREGATE,
+  known_event_ids: Iterable[str] = (),
   prior_occurrences: int = 0
 ) -> SemanticDocument:
   """Rebuild an aggregate from its contributions.
@@ -138,15 +141,31 @@ def aggregate_document(
   The result depends only on the set of contributions, never on delivery order, so Kafka
   redelivery and replay converge on the same document. When an aggregate exceeds
   `max_contributions`, the earliest contribution and the most recent `max_contributions - 1`
-  contributions are kept so `first_seen`, initial incident context and recent state remain bounded.
+  contributions are kept so `first_seen`, initial incident context and recent state remain bounded,
+  while `event_ids` tracks up to the most recent `max_tracked_event_ids` seen event IDs for
+  duplicate detection.
   """
   if max_contributions < 1:
     raise ValueError("max_contributions must be at least 1")
+  if max_tracked_event_ids < max_contributions:
+    raise ValueError("max_tracked_event_ids must be at least max_contributions")
   by_event = {contribution.event_id: contribution for contribution in contributions}
   ordered = sorted(by_event.values(), key=lambda item: (item.timestamp, item.event_id))
   if not ordered:
     raise ValueError("an aggregate needs at least one contribution")
-  total_occurrences = max(len(ordered), prior_occurrences)
+  trimmed_prior_ids = [
+    event_id for event_id in dict.fromkeys(known_event_ids) if event_id not in by_event
+  ]
+  if trimmed_prior_ids:
+    seen_event_ids = [
+      ordered[0].event_id,
+      *trimmed_prior_ids,
+      *(item.event_id for item in ordered[1:]),
+    ]
+  else:
+    seen_event_ids = [item.event_id for item in sorted(ordered, key=lambda item: item.event_id)]
+  tracked_event_ids = seen_event_ids[-max_tracked_event_ids:]
+  total_occurrences = max(len(seen_event_ids), prior_occurrences)
   if len(ordered) > max_contributions:
     if max_contributions == 1:
       retained = [ordered[-1]]
@@ -172,7 +191,7 @@ def aggregate_document(
     status=_newest(retained, "status"),
     change_id=_newest(retained, "change_id"),
     event_id=last.event_id,
-    event_ids=[item.event_id for item in sorted(retained, key=lambda item: item.event_id)],
+    event_ids=tracked_event_ids,
     occurrences=total_occurrences,
     trace_id=_newest(retained, "trace_id"),
     incident_id=_newest(retained, "incident_id"),

@@ -24,13 +24,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 LOGGER = logging.getLogger(__name__)
 
 
+DEFAULT_DEAD_LETTER_SEND_TIMEOUT_SECONDS = 10.0
+MAX_MESSAGE_BYTES = 1_048_576
+MAX_JSON_NESTING_DEPTH = 32
+
+
 class JsonDeadLetterProducer:
-  def __init__(self, producer: KafkaProducer) -> None:
+  def __init__(
+    self,
+    producer: KafkaProducer,
+    send_timeout_seconds: float = DEFAULT_DEAD_LETTER_SEND_TIMEOUT_SECONDS,
+  ) -> None:
     self._producer = producer
+    self._send_timeout_seconds = send_timeout_seconds
 
   def send(self, topic: str, value: dict[str, object], key: str | None = None) -> None:
     encoded_key = key.encode("utf-8") if key else None
-    self._producer.send(topic, key=encoded_key, value=value)
+    future = self._producer.send(topic, key=encoded_key, value=value)
+    future.get(timeout=self._send_timeout_seconds)
     self._producer.flush()
 
 
@@ -48,15 +59,52 @@ class PayloadProcessor(Protocol):
   def dead_letter_undecodable(self, raw: bytes, reason: str, origin: str) -> None: ...
 
 
-def decode_message(value: Any) -> dict[str, Any] | None:
+def _exceeds_max_depth(value: Any, max_depth: int = MAX_JSON_NESTING_DEPTH) -> bool:
+  stack: list[tuple[Any, int]] = [(value, 1)]
+  while stack:
+    current, depth = stack.pop()
+    if depth > max_depth:
+      return True
+    if isinstance(current, dict):
+      for item in current.values():
+        if isinstance(item, dict | list):
+          stack.append((item, depth + 1))
+    elif isinstance(current, list):
+      for item in current:
+        if isinstance(item, dict | list):
+          stack.append((item, depth + 1))
+  return False
+
+
+def decode_message(
+  value: Any,
+  *,
+  max_bytes: int = MAX_MESSAGE_BYTES,
+  max_depth: int = MAX_JSON_NESTING_DEPTH,
+) -> dict[str, Any] | None:
   """Return the JSON object carried by a message, or None if it is not one."""
   if isinstance(value, dict):
-    return value
-  try:
-    decoded = json.loads(value.decode("utf-8") if isinstance(value, bytes) else value)
-  except (ValueError, TypeError):
+    return None if _exceeds_max_depth(value, max_depth) else value
+  if isinstance(value, bytes):
+    if len(value) > max_bytes:
+      return None
+    try:
+      text = value.decode("utf-8")
+    except UnicodeDecodeError:
+      return None
+  elif isinstance(value, str):
+    if len(value) > max_bytes or len(value.encode("utf-8")) > max_bytes:
+      return None
+    text = value
+  else:
     return None
-  return decoded if isinstance(decoded, dict) else None
+  try:
+    decoded = json.loads(text)
+  except (ValueError, TypeError, RecursionError):
+    return None
+  if not isinstance(decoded, dict) or _exceeds_max_depth(decoded, max_depth):
+    return None
+  return decoded
 
 
 def consume_available(consumer: Iterable[Any], committer: OffsetCommittingConsumer,
@@ -127,7 +175,8 @@ class KafkaEventRuntime:
       dead_letter_producer=JsonDeadLetterProducer(producer),
       dead_letter_topic=settings.kafka_dead_letter_topic,
       max_embedding_retries=settings.max_embedding_retries,
-      max_contributions_per_aggregate=settings.max_contributions_per_aggregate
+      max_contributions_per_aggregate=settings.max_contributions_per_aggregate,
+      max_tracked_event_ids_per_aggregate=settings.max_tracked_event_ids_per_aggregate
     )
 
   def run_forever(self) -> None:

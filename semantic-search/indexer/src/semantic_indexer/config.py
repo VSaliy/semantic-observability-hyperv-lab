@@ -1,4 +1,6 @@
-from pydantic import Field
+from __future__ import annotations
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +21,7 @@ class IndexerSettings(BaseSettings):
   startup_backoff_seconds: float = 2.0
   enable_metrics_server: bool = True
   max_contributions_per_aggregate: int = 100
+  max_tracked_event_ids_per_aggregate: int = 1000
   schema_path: str = "/app/schemas/operational-event.schema.json"
   valid_evidence_hosts: list[str] = Field(
     default_factory=lambda: ["grafana.example", "kafka.example", "opensearch.example"]
@@ -30,3 +33,13 @@ class IndexerSettings(BaseSettings):
       "payments": ["grafana.example", "opensearch.example"],
     }
   )
+
+  @model_validator(mode="after")
+  def validate_aggregate_bounds(self) -> IndexerSettings:
+    if self.max_contributions_per_aggregate < 1:
+      raise ValueError("max_contributions_per_aggregate must be at least 1")
+    if self.max_tracked_event_ids_per_aggregate < self.max_contributions_per_aggregate:
+      raise ValueError(
+        "max_tracked_event_ids_per_aggregate must be at least max_contributions_per_aggregate"
+      )
+    return self

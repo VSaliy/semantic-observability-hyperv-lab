@@ -85,3 +85,38 @@ def test_dead_lettered_event_is_committed() -> None:
   assert len(producer.messages) == 1
   assert store.documents == {}
   assert committed(consumer) == [(2, 42)]
+
+
+class FailingFuture:
+  def get(self, timeout: float | None = None) -> Any:
+    raise RuntimeError("dead-letter broker unavailable")
+
+
+class FailingKafkaProducer:
+  def send(self, topic: str, key: Any = None, value: Any = None) -> Any:
+    return FailingFuture()
+
+  def flush(self) -> None:
+    pass
+
+
+def test_failed_dead_letter_delivery_raises_and_prevents_offset_commit() -> None:
+  from semantic_indexer.embeddings import DeterministicEmbeddingProvider
+  from semantic_indexer.runtime import JsonDeadLetterProducer
+  from semantic_indexer.service import EventProcessor
+  from test_event_processor import InMemoryStore
+
+  validator = EventValidator(str(SCHEMA_PATH), ["grafana.example"])
+  dead_letter_producer = JsonDeadLetterProducer(FailingKafkaProducer())
+  processor = EventProcessor(
+    validator=validator,
+    embedding_provider=DeterministicEmbeddingProvider(),
+    store=InMemoryStore(),
+    dead_letter_producer=dead_letter_producer,
+    dead_letter_topic="semantic.dead-letter",
+    max_embedding_retries=1,
+  )
+  consumer = FakeConsumer([message(2, 41, {"eventId": "not-a-valid-event"})])
+  with pytest.raises(RuntimeError, match="dead-letter broker unavailable"):
+    consume_available(consumer, consumer, processor)
+  assert consumer.commits == []

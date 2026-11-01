@@ -102,7 +102,8 @@ def build_processor(
   validator: EventValidator,
   embedder: Any | None = None,
   store: InMemoryStore | None = None,
-  max_contributions_per_aggregate: int = 100
+  max_contributions_per_aggregate: int = 100,
+  max_tracked_event_ids_per_aggregate: int | None = None,
 ) -> tuple[EventProcessor, InMemoryStore, InMemoryProducer]:
   store = store or InMemoryStore()
   producer = InMemoryProducer()
@@ -113,7 +114,8 @@ def build_processor(
     dead_letter_producer=producer,
     dead_letter_topic="semantic.dead-letter",
     max_embedding_retries=3,
-    max_contributions_per_aggregate=max_contributions_per_aggregate
+    max_contributions_per_aggregate=max_contributions_per_aggregate,
+    max_tracked_event_ids_per_aggregate=max_tracked_event_ids_per_aggregate,
   )
   return processor, store, producer
 
@@ -357,7 +359,7 @@ def test_aggregate_size_is_capped_while_occurrences_continue_counting(
   assert document["occurrences"] == 3
   assert len(document["contributions"]) == 2
   assert [item["event_id"] for item in document["contributions"]] == ["evt-0002", "evt-0011"]
-  assert document["event_ids"] == ["evt-0002", "evt-0011"]
+  assert document["event_ids"] == ["evt-0002", "evt-0010", "evt-0011"]
   assert document["first_seen"] == "2026-07-01T10:00:00Z"
   assert document["last_seen"] == "2026-07-01T10:04:00Z"
   assert "3 occurrences" in document["summary"]
@@ -365,3 +367,43 @@ def test_aggregate_size_is_capped_while_occurrences_continue_counting(
   assert duplicate.duplicates == 1
   (after_duplicate,) = store.of_type("log_template")
   assert after_duplicate["occurrences"] == 3
+
+
+def test_redelivering_trimmed_event_is_detected_as_duplicate_within_tracking_window(
+  events: dict[str, dict[str, Any]], validator: EventValidator
+) -> None:
+  processor, store, producer = build_processor(
+    validator,
+    max_contributions_per_aggregate=3,
+    max_tracked_event_ids_per_aggregate=10,
+  )
+  base_event = events["evt-0002"]
+  payloads = []
+  for idx in range(1, 6):
+    item = copy.deepcopy(base_event)
+    item["eventId"] = f"evt-dedup-{idx:04d}"
+    item["timestamp"] = f"2026-07-01T10:0{idx}:00Z"
+    item["summary"] = f"Database connection acquisition timeout exceeded {30 + idx} seconds."
+    payloads.append(item)
+
+  result = processor.process_messages(payloads)
+  assert result.indexed == 5
+  assert not producer.messages
+
+  (doc,) = store.of_type("log_template")
+  assert doc["occurrences"] == 5
+  assert len(doc["contributions"]) == 3
+  assert [c["event_id"] for c in doc["contributions"]] == [
+    "evt-dedup-0001",
+    "evt-dedup-0004",
+    "evt-dedup-0005",
+  ]
+  assert "evt-dedup-0002" not in [c["event_id"] for c in doc["contributions"]]
+  assert "evt-dedup-0002" in doc["event_ids"]
+
+  redelivery = processor.process_payload(payloads[1])  # evt-dedup-0002
+  assert redelivery.duplicates == 1
+  assert redelivery.indexed == 0
+
+  (after_redelivery,) = store.of_type("log_template")
+  assert after_redelivery["occurrences"] == 5

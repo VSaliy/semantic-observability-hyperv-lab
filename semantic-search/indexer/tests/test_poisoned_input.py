@@ -133,3 +133,56 @@ def test_poison_message_does_not_block_following_events(
   assert len(store.documents) == 1
   assert len(producer.messages) == 1
   assert [meta.offset for c in consumer.commits for meta in c.values()] == [2, 3]
+
+
+def test_deeply_nested_json_is_rejected_and_committed(
+  validator: EventValidator,
+) -> None:
+  processor, store, producer = build_processor(validator)
+  raw = ("[" * 100000).encode("utf-8")
+  assert decode_message(raw) is None
+  consumer = FakeConsumer([raw_message(10, raw)])
+  assert consume_available(consumer, consumer, processor) == 1
+  assert store.documents == {}
+  assert len(producer.messages) == 1
+  assert consumer.commits == [{TopicPartition(TOPIC, 0): OffsetAndMetadata(11, "", -1)}]
+
+
+def test_nested_structure_exceeding_max_depth_is_rejected() -> None:
+  curr: Any = {"val": 1}
+  for _ in range(35):
+    curr = {"nested": curr}
+  raw = json.dumps(curr).encode("utf-8")
+  assert decode_message(raw) is None
+  assert decode_message(curr) is None
+
+
+def test_oversized_payload_is_rejected_as_undecodable_and_committed(
+  validator: EventValidator,
+) -> None:
+  processor, store, producer = build_processor(validator)
+  raw = json.dumps({"data": "x" * 1_050_000}).encode("utf-8")
+  assert decode_message(raw) is None
+  consumer = FakeConsumer([raw_message(15, raw)])
+  assert consume_available(consumer, consumer, processor) == 1
+  assert store.documents == {}
+  assert len(producer.messages) == 1
+  assert consumer.commits == [{TopicPartition(TOPIC, 0): OffsetAndMetadata(16, "", -1)}]
+
+
+def test_secret_in_rejected_payload_does_not_appear_in_dead_letter_reason_or_payload(
+  validator: EventValidator, event: dict[str, Any]
+) -> None:
+  payload = dict(event)
+  secret_token = "SUPERSECRET999"
+  payload["evidence"] = [
+    {"type": "log", "system": "grafana", "url": f"https://evil.test/explore?token={secret_token}"}
+  ]
+  payload["attributes"] = {"token": secret_token}
+  processor, _, producer = build_processor(validator)
+  res = processor.process_payload(payload)
+  assert res.dead_lettered == 1
+  sent = producer.messages[0]["value"]
+  sent_json = json.dumps(sent)
+  assert secret_token not in sent_json
+  assert len(sent["reason"]) <= 500

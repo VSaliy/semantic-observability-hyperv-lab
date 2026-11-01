@@ -6,6 +6,24 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+MAX_SUMMARY_LENGTH = 4096
+MAX_ATTRIBUTE_STRING_LENGTH = 8192
+
+
+def _validate_attribute_strings(value: Any) -> None:
+  stack: list[Any] = [value]
+  while stack:
+    current = stack.pop()
+    if isinstance(current, str):
+      if len(current) > MAX_ATTRIBUTE_STRING_LENGTH:
+        raise ValueError(
+          f"attribute string value exceeds maximum length of {MAX_ATTRIBUTE_STRING_LENGTH}"
+        )
+    elif isinstance(current, dict):
+      stack.extend(current.values())
+    elif isinstance(current, list):
+      stack.extend(current)
+
 
 class Severity(str, Enum):
   INFO = "INFO"
@@ -55,6 +73,19 @@ class OperationalEvent(BaseModel):
   def tenant_required(cls, value: str) -> str:
     if not value.strip():
       raise ValueError("tenantId is mandatory")
+    return value
+
+  @field_validator("summary")
+  @classmethod
+  def summary_length_cap(cls, value: str) -> str:
+    if len(value) > MAX_SUMMARY_LENGTH:
+      raise ValueError(f"summary exceeds maximum length of {MAX_SUMMARY_LENGTH}")
+    return value
+
+  @field_validator("attributes")
+  @classmethod
+  def attribute_string_length_cap(cls, value: dict[str, Any]) -> dict[str, Any]:
+    _validate_attribute_strings(value)
     return value
 
 
