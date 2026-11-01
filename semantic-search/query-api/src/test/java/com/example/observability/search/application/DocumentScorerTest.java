@@ -41,4 +41,24 @@ class DocumentScorerTest {
 
     assertThat(results.getFirst().explanation()).doesNotContain("same service", "topology proximity");
   }
+
+  @Test
+  void scalesKeywordScoresRelativeToStrongestMatchAboveFive() {
+    SearchCriteria criteria = new SearchCriteria("database connection acquisition timeouts",
+        "market-data", "production", Instant.parse("2026-07-01T09:30:00Z"), Instant.parse("2026-07-01T11:30:00Z"), 5,
+        SearchMode.HYBRID);
+    SearchCandidate strongKeywordMatch = new SearchCandidate("log-doc", "log_template", "market-data", "production",
+        Instant.parse("2026-07-01T10:02:00Z"), "quote-service", "ERROR", "CHG-0310",
+        "Database connection acquisition timeout exceeded <duration>.", "semantic text",
+        List.of("quote-service"), List.of(), 18.0, "keyword");
+    SearchCandidate weakerKeywordMatch = new SearchCandidate("incident-doc", "incident", "market-data", "production",
+        Instant.parse("2026-07-01T10:10:00Z"), "quote-service", "CRITICAL", "CHG-0310",
+        "INC-0077 opened for quote-service database connection pool exhaustion.", "semantic text",
+        List.of("quote-service"), List.of(), 6.0, "keyword");
+
+    List<ScoredResult> results = scorer.score(
+        criteria, List.of(weakerKeywordMatch, strongKeywordMatch), List.of());
+
+    assertThat(results.getFirst().documentId()).isEqualTo("log-doc");
+  }
 }

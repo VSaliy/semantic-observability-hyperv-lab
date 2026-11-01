@@ -22,12 +22,21 @@ public class DocumentScorer {
     Map<String, Aggregate> aggregateById = new HashMap<>();
     mergeCandidates(aggregateById, keywordCandidates, "keyword");
     mergeCandidates(aggregateById, semanticCandidates, "semantic");
+    double keywordCeiling = Math.max(
+        5.0,
+        aggregateById.values().stream().mapToDouble(a -> a.keywordScore).max().orElse(5.0));
     return aggregateById.values().stream()
-        .map(aggregate -> toScoredResult(criteria, aggregate))
-        .sorted(Comparator.comparingDouble(ScoredResult::score).reversed())
+        .map(aggregate -> new RankedResult(toScoredResult(criteria, aggregate, keywordCeiling), aggregate.keywordScore))
+        .sorted(Comparator
+            .comparingDouble((RankedResult r) -> r.result().score())
+            .thenComparingDouble(RankedResult::rawKeywordScore)
+            .reversed())
         .limit(criteria.topK())
+        .map(RankedResult::result)
         .toList();
   }
+
+  private record RankedResult(ScoredResult result, double rawKeywordScore) {}
 
   private void mergeCandidates(Map<String, Aggregate> aggregateById, List<SearchCandidate> candidates,
       String source) {
@@ -37,10 +46,10 @@ public class DocumentScorer {
     }
   }
 
-  private ScoredResult toScoredResult(SearchCriteria criteria, Aggregate aggregate) {
+  private ScoredResult toScoredResult(SearchCriteria criteria, Aggregate aggregate, double keywordCeiling) {
     SearchCandidate candidate = aggregate.primary;
-    double keywordScore = normalize(aggregate.keywordScore);
-    double semanticScore = normalize(aggregate.semanticScore);
+    double keywordScore = normalize(aggregate.keywordScore, keywordCeiling);
+    double semanticScore = normalize(aggregate.semanticScore, 5.0);
     double timeScore = timeProximity(candidate.timestamp(), criteria.from(), criteria.to());
     double serviceScore = containsToken(criteria.query(), candidate.serviceName()) ? 1.0 : 0.0;
     double topologyScore = candidate.topologyEntities().stream().anyMatch(entity -> containsToken(criteria.query(), entity)) ? 1.0 : 0.0;
@@ -86,11 +95,11 @@ public class DocumentScorer {
     return query.toLowerCase(Locale.ROOT).contains(value.toLowerCase(Locale.ROOT));
   }
 
-  private double normalize(double score) {
+  private double normalize(double score, double ceiling) {
     if (score <= 0) {
       return 0.0;
     }
-    return Math.min(score / 5.0, 1.0);
+    return Math.min(score / ceiling, 1.0);
   }
 
   private double timeProximity(Instant timestamp, Instant from, Instant to) {
