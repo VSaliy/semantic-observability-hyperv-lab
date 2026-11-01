@@ -1,6 +1,8 @@
 package com.example.observability.search.security;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -31,7 +34,21 @@ class DevJwtConfiguration {
       @Value("${query.jwt-secret:}") String secret,
       @Value("${query.jwt-issuer:}") String issuer,
       @Value("${query.allow-dev-auth:false}") boolean allowDevAuth,
+      Environment environment,
       JtiReplayValidator jtiReplayValidator) {
+    List<String> nonDevProfiles = Arrays.stream(environment.getActiveProfiles())
+        .filter(profile -> !profile.isBlank() && !"dev".equals(profile))
+        .toList();
+    if (!nonDevProfiles.isEmpty()) {
+      throw new IllegalStateException(
+          "The 'dev' profile cannot be combined with non-dev profiles: " + nonDevProfiles);
+    }
+    String kubernetesHost = environment.getProperty("KUBERNETES_SERVICE_HOST");
+    if (kubernetesHost != null && !kubernetesHost.isBlank()) {
+      throw new IllegalStateException(
+          "The 'dev' profile and query.allow-dev-auth are forbidden in a Kubernetes deployment "
+              + "(KUBERNETES_SERVICE_HOST is set).");
+    }
     if (!allowDevAuth) {
       throw new IllegalStateException(
           "The 'dev' profile enables a public shared secret and must be opted into explicitly: set "

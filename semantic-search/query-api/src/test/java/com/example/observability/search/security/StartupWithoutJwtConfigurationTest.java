@@ -63,4 +63,31 @@ class StartupWithoutJwtConfigurationTest {
       assertThat(context.isRunning()).isTrue();
     }
   }
+
+  @Test
+  void failsWhenAllowDevAuthIsEnabledOutsideDevProfile() {
+    assertThatThrownBy(() -> application(
+        "spring.profiles.active=none",
+        "query.allow-dev-auth=true",
+        "spring.security.oauth2.resourceserver.jwt.jwk-set-uri=http://127.0.0.1:1/jwks",
+        "spring.security.oauth2.resourceserver.jwt.audiences=semantic-search-api").run("--server.port=0"))
+        .hasStackTraceContaining("query.allow-dev-auth must not be enabled outside the 'dev' Spring profile");
+  }
+
+  @Test
+  void failsWhenDevProfileIsCombinedWithDeploymentProfile() {
+    assertThatThrownBy(() -> application(
+        "spring.profiles.active=dev,prod",
+        "query.allow-dev-auth=true").run("--server.port=0"))
+        .hasStackTraceContaining("The 'dev' profile cannot be combined with non-dev profiles");
+  }
+
+  @Test
+  void failsWhenDevProfileRunsInsideKubernetesCluster() {
+    assertThatThrownBy(() -> application(
+        "spring.profiles.active=dev",
+        "query.allow-dev-auth=true",
+        "KUBERNETES_SERVICE_HOST=10.96.0.1").run("--server.port=0"))
+        .hasStackTraceContaining("forbidden in a Kubernetes deployment");
+  }
 }

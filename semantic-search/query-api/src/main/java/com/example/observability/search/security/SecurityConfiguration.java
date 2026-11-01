@@ -16,10 +16,16 @@ import org.springframework.security.web.SecurityFilterChain;
 @Configuration
 public class SecurityConfiguration {
   private static final String AUDIENCES_PROPERTY = "spring.security.oauth2.resourceserver.jwt.audiences";
+  private static final String ALLOW_DEV_AUTH_PROPERTY = "query.allow-dev-auth";
 
   @Bean
   SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectProvider<JwtDecoder> jwtDecoder,
       Environment environment) throws Exception {
+    boolean devProfile = environment.acceptsProfiles(Profiles.of("dev"));
+    if (!devProfile && Boolean.TRUE.equals(environment.getProperty(ALLOW_DEV_AUTH_PROPERTY, Boolean.class))) {
+      throw new IllegalStateException(
+          ALLOW_DEV_AUTH_PROPERTY + " must not be enabled outside the 'dev' Spring profile.");
+    }
     // Spring Boot creates a decoder from spring.security.oauth2.resourceserver.jwt.issuer-uri or
     // jwk-set-uri; the dev profile supplies a shared-secret one. Without either there is no way to
     // validate tokens, and we refuse to start rather than fall back to a default secret.
@@ -30,7 +36,7 @@ public class SecurityConfiguration {
     }
     // Spring Boot adds an audience validator to the decoder it builds when audiences are configured.
     // Without one, a token minted for another service by the same issuer would be accepted.
-    if (!environment.acceptsProfiles(Profiles.of("dev"))
+    if (!devProfile
         && Binder.get(environment).bind(AUDIENCES_PROPERTY, Bindable.listOf(String.class))
             .orElse(List.of()).isEmpty()) {
       throw new IllegalStateException(
