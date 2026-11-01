@@ -59,7 +59,9 @@ reindexed: rebuild v2 by replaying Kafka from the earliest offset (locally, `mak
 
 ## Limitations
 
-- `contributions` and `event_ids` grow with occurrences. Hourly buckets bound log templates and alerts,
-  but a very noisy template within one hour produces a large document; capping is future work.
+- `contributions` and `event_ids` are capped at `max_contributions_per_aggregate` (default 100),
+  retaining the earliest contribution and the most recent `max_contributions_per_aggregate - 1`
+  contributions while continuing to increment `occurrences`. Once an aggregate exceeds the cap,
+  duplicate detection applies to the retained window of event IDs.
 - The query API filters on `timestamp`, which is `last_seen`. An aggregate whose activity began inside
   the search window but continued past its end is not matched.

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 from semantic_indexer.documents import (
+  MAX_CONTRIBUTIONS_PER_AGGREGATE,
   aggregate_document,
   build_contribution,
   deterministic_document_id,
@@ -63,7 +64,8 @@ class EventProcessor:
     dead_letter_producer: DeadLetterProducer,
     dead_letter_topic: str,
     max_embedding_retries: int,
-    max_write_attempts: int = 3
+    max_write_attempts: int = 3,
+    max_contributions_per_aggregate: int = MAX_CONTRIBUTIONS_PER_AGGREGATE
   ) -> None:
     self._validator = validator
     self._embedding_provider = embedding_provider
@@ -72,6 +74,7 @@ class EventProcessor:
     self._dead_letter_topic = dead_letter_topic
     self._max_embedding_retries = max_embedding_retries
     self._max_write_attempts = max_write_attempts
+    self._max_contributions_per_aggregate = max_contributions_per_aggregate
 
   def process_payload(self, payload: dict[str, Any]) -> ProcessorResult:
     with PROCESSING_LATENCY.time():
@@ -99,8 +102,15 @@ class EventProcessor:
       if any(item.event_id == event.eventId for item in existing):
         DUPLICATE_EVENTS.inc()
         return ProcessorResult(duplicates=1)
+      prior_occurrences = stored.document.occurrences + 1 if stored else 1
       document = aggregate_document(
-        document_id, document_type, event.tenantId, event.environment, [*existing, contribution]
+        document_id,
+        document_type,
+        event.tenantId,
+        event.environment,
+        [*existing, contribution],
+        max_contributions=self._max_contributions_per_aggregate,
+        prior_occurrences=prior_occurrences
       )
       vector = self._embed_with_retries(document.semantic_text)
       if vector is None:
