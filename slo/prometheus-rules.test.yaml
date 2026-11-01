@@ -44,3 +44,35 @@ tests:
               runbook_url: https://grafana.example/docs/runbooks/dropped-evidence-links
             exp_annotations:
               summary: The query API dropped evidence links outside the tenant allowlist; inspect OpenSearch documents and producer inputs.
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_embedding_retries_total'
+        values: '0+10x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SemanticIndexerEmbeddingRetriesHigh
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SemanticIndexerEmbeddingRetriesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/semantic-embedding-retries
+            exp_annotations:
+              summary: Semantic indexer embedding retries exceeded 0.1 per second; inspect embedding-service health.
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_write_conflicts_total'
+        values: '0+10x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SemanticIndexerWriteConflictsHigh
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SemanticIndexerWriteConflictsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/semantic-write-conflicts
+            exp_annotations:
+              summary: Semantic indexer write conflicts exceeded 0.1 per second; inspect concurrent consumers or noisy aggregates.
