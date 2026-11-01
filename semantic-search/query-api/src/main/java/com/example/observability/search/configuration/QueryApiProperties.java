@@ -14,6 +14,8 @@ import org.springframework.validation.annotation.Validated;
 public record QueryApiProperties(
     @Min(1) int topKLimit,
     @NotBlank String defaultTimeRange,
+    @NotBlank String maxTimeRange,
+    @Min(1) int rateLimitPerMinute,
     @NotBlank String requiredTenantClaim,
     List<String> validEvidenceHosts,
     Map<String, List<String>> tenantValidEvidenceHosts,

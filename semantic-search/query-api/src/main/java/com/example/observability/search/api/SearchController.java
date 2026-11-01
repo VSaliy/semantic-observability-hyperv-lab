@@ -1,5 +1,6 @@
 package com.example.observability.search.api;
 
+import com.example.observability.search.application.TenantRateLimitExceededException;
 import com.example.observability.search.application.TenantSearchService;
 import com.example.observability.search.application.TenantSearchService.SearchExecution;
 import java.net.URI;
@@ -73,6 +74,16 @@ public class SearchController {
     ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
     detail.setTitle("Invalid search request");
     detail.setType(URI.create("https://example.com/problems/invalid-search-request"));
+    return detail;
+  }
+
+  @ExceptionHandler(TenantRateLimitExceededException.class)
+  @ResponseStatus(HttpStatus.TOO_MANY_REQUESTS)
+  ProblemDetail rateLimitExceeded(TenantRateLimitExceededException exception) {
+    ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+        HttpStatus.TOO_MANY_REQUESTS, exception.getMessage());
+    detail.setTitle("Rate limit exceeded");
+    detail.setType(URI.create("https://example.com/problems/rate-limit-exceeded"));
     return detail;
   }
 }

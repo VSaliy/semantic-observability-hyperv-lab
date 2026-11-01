@@ -16,6 +16,8 @@ management:
 query:
   top-k-limit: 20
   default-time-range: PT2H
+  max-time-range: PT168H
+  rate-limit-per-minute: 120
   required-tenant-claim: tenant
   valid-evidence-hosts:
     - grafana.example

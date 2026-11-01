@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 
@@ -21,17 +22,27 @@ public class TenantSearchService {
   private final SearchGateway searchGateway;
   private final DocumentScorer scorer;
   private final EvidencePolicy evidencePolicy;
+  private final TenantRateLimiter rateLimiter;
   private final Clock clock;
   private final MeterRegistry meterRegistry;
 
   public TenantSearchService(QueryApiProperties properties, EmbeddingClient embeddingClient,
       SearchGateway searchGateway, DocumentScorer scorer, EvidencePolicy evidencePolicy,
       MeterRegistry meterRegistry, Clock clock) {
+    this(properties, embeddingClient, searchGateway, scorer, evidencePolicy,
+        new TenantRateLimiter(properties, meterRegistry), meterRegistry, clock);
+  }
+
+  @Autowired
+  public TenantSearchService(QueryApiProperties properties, EmbeddingClient embeddingClient,
+      SearchGateway searchGateway, DocumentScorer scorer, EvidencePolicy evidencePolicy,
+      TenantRateLimiter rateLimiter, MeterRegistry meterRegistry, Clock clock) {
     this.properties = properties;
     this.embeddingClient = embeddingClient;
     this.searchGateway = searchGateway;
     this.scorer = scorer;
     this.evidencePolicy = evidencePolicy;
+    this.rateLimiter = rateLimiter;
     this.meterRegistry = meterRegistry;
     this.clock = clock;
   }
@@ -39,9 +50,11 @@ public class TenantSearchService {
   public SearchExecution search(String query, String environment, Duration timeRange, Integer requestedTopK,
       SearchMode mode, Jwt jwt) {
     String tenant = extractTenant(jwt);
+    Duration effectiveRange = validateTimeRange(timeRange);
+    rateLimiter.checkAllowed(tenant);
     int topK = Math.min(requestedTopK == null ? properties.topKLimit() : requestedTopK, properties.topKLimit());
     Instant to = clock.instant();
-    Instant from = to.minus(timeRange == null ? Duration.parse(properties.defaultTimeRange()) : timeRange);
+    Instant from = to.minus(effectiveRange);
     SearchCriteria criteria = new SearchCriteria(query, tenant, environment, from, to, topK, mode);
     Timer.Sample sample = Timer.start(meterRegistry);
     List<Float> embedding = mode == SearchMode.KEYWORD ? List.of() : embeddingClient.embed(query);
@@ -67,6 +80,21 @@ public class TenantSearchService {
       throw new IllegalArgumentException("tenant claim is required");
     }
     return claim;
+  }
+
+  private Duration validateTimeRange(Duration requested) {
+    Duration range = requested == null ? Duration.parse(properties.defaultTimeRange()) : requested;
+    if (range.isZero() || range.isNegative()) {
+      throw new IllegalArgumentException("timeRange must be positive");
+    }
+    String configuredMax = properties.maxTimeRange();
+    Duration maxRange = (configuredMax == null || configuredMax.isBlank())
+        ? Duration.ofHours(168)
+        : Duration.parse(configuredMax);
+    if (range.compareTo(maxRange) > 0) {
+      throw new IllegalArgumentException("timeRange exceeds maximum allowed window of " + maxRange);
+    }
+    return range;
   }
 
   public record SearchExecution(String queryId, SearchCriteria criteria, List<ScoredResult> results) {}
