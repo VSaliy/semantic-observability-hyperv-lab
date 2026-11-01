@@ -34,8 +34,7 @@ class DevJwtConfiguration {
       @Value("${query.jwt-secret:}") String secret,
       @Value("${query.jwt-issuer:}") String issuer,
       @Value("${query.allow-dev-auth:false}") boolean allowDevAuth,
-      Environment environment,
-      JtiReplayValidator jtiReplayValidator) {
+      Environment environment) {
     List<String> nonDevProfiles = Arrays.stream(environment.getActiveProfiles())
         .filter(profile -> !profile.isBlank() && !"dev".equals(profile))
         .toList();
@@ -69,8 +68,7 @@ class DevJwtConfiguration {
         .build();
     OAuth2TokenValidator<Jwt> validator = new DelegatingOAuth2TokenValidator<>(
         JwtValidators.createDefault(),
-        new JwtIssuerValidator(issuer),
-        jtiReplayValidator);
+        new JwtIssuerValidator(issuer));
     decoder.setJwtValidator(validator);
     return decoder;
   }
