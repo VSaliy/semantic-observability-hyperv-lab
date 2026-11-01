@@ -24,7 +24,7 @@ from semantic_indexer.metrics import (
   WRITE_CONFLICTS,
 )
 from semantic_indexer.models import SemanticDocument
-from semantic_indexer.redaction import redact_text, redact_value
+from semantic_indexer.redaction import redact_evidence_url, redact_text, redact_value
 from semantic_indexer.validation import EventValidationError, EventValidator
 
 LOGGER = logging.getLogger(__name__)
@@ -89,9 +89,12 @@ class EventProcessor:
 
     event.attributes = redact_value(event.attributes)
     event.summary = redact_text(event.summary)
+    for reference in event.evidence:
+      reference.url = redact_evidence_url(reference.url)
     redacted_payload = dict(payload)
     redacted_payload["attributes"] = event.attributes
     redacted_payload["summary"] = event.summary
+    redacted_payload["evidence"] = [reference.model_dump() for reference in event.evidence]
     contribution = build_contribution(event)
     document_type = document_type_for(event)
     document_id = deterministic_document_id(event, document_type)

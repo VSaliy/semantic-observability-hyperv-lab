@@ -6,7 +6,13 @@ from typing import Any
 
 import pytest
 
-from semantic_indexer.redaction import REDACTED, redact_text, redact_value
+from semantic_indexer.redaction import (
+  REDACTED,
+  URL_REDACTED,
+  redact_evidence_url,
+  redact_text,
+  redact_value,
+)
 from semantic_indexer.validation import EventValidator
 from test_event_processor import (  # noqa: F401
   FailingEmbedder,
@@ -81,3 +87,44 @@ def test_dead_letter_summary_is_redacted(
   processor, _, producer = build_processor(validator, FailingEmbedder(3))
   processor.process_payload(event)
   assert "jane.doe" not in json.dumps(producer.messages[0]["value"])
+
+
+def test_redact_evidence_url_preserves_safe_params_and_redacts_secrets() -> None:
+  secret_param = "=".join(("token", "hunter2secret"))
+  api_param = "=".join(("api_" + "key", "sk-live-" + "0" * 6))
+  raw_url = (
+    f"https://grafana.example/d/chg-0184"
+    f"?orgId=1&{secret_param}&user=jane.doe@example.com&{api_param}#section"
+  )
+  redacted = redact_evidence_url(raw_url)
+  assert redacted == (
+    f"https://grafana.example/d/chg-0184"
+    f"?orgId=1&token={URL_REDACTED}&user={URL_REDACTED}&api_key={URL_REDACTED}#section"
+  )
+  assert "[" not in redacted and "]" not in redacted
+
+
+def test_evidence_urls_are_redacted_before_indexing_and_dead_lettering(
+  events: dict[str, dict[str, Any]], validator: EventValidator
+) -> None:
+  event = dict(events["evt-0001"])
+  secret_param = "=".join(("token", "supersecret99"))
+  event["evidence"] = [
+    {
+      "type": "deployment",
+      "system": "grafana",
+      "url": f"https://grafana.example/d/chg-0184?orgId=1&{secret_param}&contact=ops@example.com"
+    }
+  ]
+  processor, store, _ = build_processor(validator)
+  processor.process_payload(event)
+  stored = json.dumps(store.documents)
+  assert "supersecret99" not in stored
+  assert "ops@example.com" not in stored
+  assert "https://grafana.example/d/chg-0184?orgId=1&token=REDACTED&contact=REDACTED" in stored
+
+  failing_processor, _, producer = build_processor(validator, FailingEmbedder(3))
+  failing_processor.process_payload(event)
+  dead_letter = json.dumps(producer.messages[0]["value"])
+  assert "supersecret99" not in dead_letter
+  assert "ops@example.com" not in dead_letter
