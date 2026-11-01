@@ -1,0 +1,7 @@
+{
+  "tolerance": 0.005,
+  "precisionAt5": 0.253,
+  "recallAt10": 0.851,
+  "mrr": 0.875,
+  "ndcgAt10": 0.8
+}

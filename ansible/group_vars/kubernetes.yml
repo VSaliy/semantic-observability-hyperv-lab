@@ -1,0 +1,43 @@
+---
+# Settings scoped to the Kubernetes node group.
+# Consumed by the containerd and kubernetes-prerequisites roles (Milestone 2)
+# and the Milestone 3 kubeadm bootstrap and platform add-on roles.
+
+# --- Cluster networking ---
+# Pod network CIDR handed to Cilium (cluster-pool IPAM).
+kubernetes_pod_network_cidr: "10.244.0.0/16"
+# Service network CIDR advertised to kube-apiserver by kubeadm.
+kubernetes_service_cidr: "10.96.0.0/12"
+
+# --- Control plane ---
+# Control-plane inventory host and its advertised API endpoint (matches
+# k8s-cp1 / 10.50.0.11 in the lab inventory and hyperv/config/lab-config.yaml).
+kubernetes_control_plane_host: k8s-cp1
+kubernetes_control_plane_endpoint: "10.50.0.11"
+
+# --- Pinned add-on versions (mirror of /versions.yaml) ---
+cilium_version: "1.16.1"
+metallb_version: "0.14.8"
+# ingress-nginx controller v1.11.3 ships in Helm chart 4.11.3.
+nginx_ingress_version: "1.11.3"
+ingress_nginx_chart_version: "4.11.3"
+cert_manager_version: "1.16.1"
+# Rancher local-path-provisioner release tag used for the default StorageClass.
+local_path_provisioner_version: "v0.0.30"
+
+# Helm chart repositories added on the control-plane node before installs.
+helm_chart_repositories:
+  - name: cilium
+    url: "https://helm.cilium.io"
+  - name: metallb
+    url: "https://metallb.github.io/metallb"
+  - name: ingress-nginx
+    url: "https://kubernetes.github.io/ingress-nginx"
+  - name: jetstack
+    url: "https://charts.jetstack.io"
+
+# MetalLB layer-2 address pool carved out of the lab subnet (10.50.0.0/24).
+metallb_address_pool: "10.50.0.240-10.50.0.250"
+
+# Default IngressClass created by the ingress-nginx controller.
+ingress_class_name: nginx

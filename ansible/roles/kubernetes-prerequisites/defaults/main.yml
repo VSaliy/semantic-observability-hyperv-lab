@@ -1,0 +1,17 @@
+---
+kubernetes_prerequisites_enabled: true
+
+# Pinned versions (overridden lab-wide by group_vars/all.yml).
+kubernetes_version: "1.31.1"
+kubernetes_minor_version: "1.31"
+
+# Kubernetes control-plane / node packages to pin and hold.
+kubernetes_packages:
+  - kubelet
+  - kubeadm
+  - kubectl
+
+# pkgs.k8s.io repository is published per minor version.
+kubernetes_apt_keyring: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+kubernetes_apt_key_url: "https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/deb/Release.key"
+kubernetes_apt_repo: "deb [signed-by={{ kubernetes_apt_keyring }}] https://pkgs.k8s.io/core:/stable:/v{{ kubernetes_minor_version }}/deb/ /"

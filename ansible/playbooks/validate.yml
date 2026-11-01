@@ -1,0 +1,6 @@
+---
+- name: Validate time synchronization and assumptions
+  hosts: all
+  become: true
+  roles:
+    - time-sync-validation

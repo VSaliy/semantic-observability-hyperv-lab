@@ -1,0 +1,53 @@
+---
+- name: Configure administrative tooling
+  when: admin_tools_enabled | bool
+  block:
+    - name: Install administrative packages
+      ansible.builtin.apt:
+        name: "{{ admin_tools_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Check the installed Helm version
+      ansible.builtin.command: "{{ helm_install_path }} version --short"
+      register: helm_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Install the pinned Helm release
+      when: ('v' ~ helm_version) not in (helm_installed.stdout | default(''))
+      block:
+        - name: Create a temporary directory for the Helm download
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: helm
+          register: helm_tmp
+
+        - name: Download the Helm archive
+          ansible.builtin.get_url:
+            url: "{{ helm_download_url }}"
+            dest: "{{ helm_tmp.path }}/helm.tar.gz"
+            mode: "0644"
+
+        - name: Extract the Helm archive
+          ansible.builtin.unarchive:
+            src: "{{ helm_tmp.path }}/helm.tar.gz"
+            dest: "{{ helm_tmp.path }}"
+            remote_src: true
+
+        - name: Install the Helm binary
+          ansible.builtin.copy:
+            src: "{{ helm_tmp.path }}/linux-amd64/helm"
+            dest: "{{ helm_install_path }}"
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0755"
+      always:
+        - name: Remove the temporary Helm directory
+          ansible.builtin.file:
+            path: "{{ helm_tmp.path }}"
+            state: absent
+          when: helm_tmp.path is defined

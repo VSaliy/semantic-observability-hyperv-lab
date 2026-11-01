@@ -1,0 +1,38 @@
+#cloud-config
+# NoCloud user-data for the observability admin / jump host (obs-admin).
+# The hostname is taken from the generated meta-data (local-hostname).
+#
+# SECURITY: add at least one SSH public key below before provisioning.
+# Password authentication is disabled by default, so an empty key list
+# leaves the guest unreachable on purpose.
+manage_etc_hosts: true
+preserve_hostname: false
+ssh_pwauth: false
+
+users:
+  - name: labadmin
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: true
+    # Replace the empty list with your key(s), for example:
+    #   - ssh-ed25519 AAAA... you@example
+    ssh_authorized_keys: []
+
+package_update: true
+package_upgrade: false
+packages:
+  - curl
+  - git
+  - jq
+  - python3
+  - python3-apt
+
+write_files:
+  - path: /etc/profile.d/lab-role.sh
+    permissions: "0644"
+    content: |
+      export LAB_ROLE=admin
+
+runcmd:
+  - [sh, -c, 'echo obs-admin baseline ready > /var/tmp/obs-admin-ready.txt']

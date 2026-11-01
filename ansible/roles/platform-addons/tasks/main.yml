@@ -1,0 +1,103 @@
+---
+- name: Install the platform add-ons
+  when: platform_addons_enabled | bool
+  environment:
+    KUBECONFIG: "{{ kubernetes_admin_conf }}"
+  block:
+    - name: Ensure the add-on manifest directory exists
+      ansible.builtin.file:
+        path: "{{ kube_addons_manifest_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render the MetalLB address pool manifest
+      ansible.builtin.template:
+        src: metallb-pool.yaml.j2
+        dest: "{{ kube_addons_manifest_dir }}/metallb-pool.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Render the cert-manager cluster issuers manifest
+      ansible.builtin.template:
+        src: cluster-issuers.yaml.j2
+        dest: "{{ kube_addons_manifest_dir }}/cluster-issuers.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Deploy the local-path storage provisioner
+      ansible.builtin.command:
+        cmd: >-
+          {{ kubectl_bin }} apply -f
+          https://raw.githubusercontent.com/rancher/local-path-provisioner/{{ local_path_provisioner_version }}/deploy/local-path-storage.yaml
+      register: local_path_apply
+      changed_when: "'created' in local_path_apply.stdout or 'configured' in local_path_apply.stdout"
+      when: not ansible_check_mode
+
+    - name: Mark local-path as the default storage class
+      ansible.builtin.command:
+        cmd: >-
+          {{ kubectl_bin }} annotate storageclass local-path
+          storageclass.kubernetes.io/is-default-class=true --overwrite
+      register: local_path_default
+      changed_when: "'annotated' in local_path_default.stdout"
+      when: not ansible_check_mode
+
+    - name: Install MetalLB
+      ansible.builtin.command:
+        cmd: >-
+          {{ helm_install_path }} upgrade --install metallb metallb/metallb
+          --namespace metallb-system --create-namespace
+          --version {{ metallb_version }}
+          --wait --timeout 5m
+      register: metallb_install
+      changed_when: "'has been upgraded' in metallb_install.stdout or 'has been installed' in metallb_install.stdout"
+      when: not ansible_check_mode
+
+    - name: Apply the MetalLB address pool
+      ansible.builtin.command:
+        cmd: "{{ kubectl_bin }} apply -f {{ kube_addons_manifest_dir }}/metallb-pool.yaml"
+      register: metallb_pool_apply
+      changed_when: "'created' in metallb_pool_apply.stdout or 'configured' in metallb_pool_apply.stdout"
+      until: metallb_pool_apply.rc == 0
+      retries: 10
+      delay: 15
+      when: not ansible_check_mode
+
+    - name: Install cert-manager
+      ansible.builtin.command:
+        cmd: >-
+          {{ helm_install_path }} upgrade --install cert-manager jetstack/cert-manager
+          --namespace cert-manager --create-namespace
+          --version v{{ cert_manager_version }}
+          --set crds.enabled=true
+          --wait --timeout 5m
+      register: cert_manager_install
+      changed_when: "'has been upgraded' in cert_manager_install.stdout or 'has been installed' in cert_manager_install.stdout"
+      when: not ansible_check_mode
+
+    - name: Apply the cert-manager cluster issuers
+      ansible.builtin.command:
+        cmd: "{{ kubectl_bin }} apply -f {{ kube_addons_manifest_dir }}/cluster-issuers.yaml"
+      register: cluster_issuers_apply
+      changed_when: "'created' in cluster_issuers_apply.stdout or 'configured' in cluster_issuers_apply.stdout"
+      until: cluster_issuers_apply.rc == 0
+      retries: 10
+      delay: 15
+      when: not ansible_check_mode
+
+    - name: Install the ingress-nginx controller
+      ansible.builtin.command:
+        cmd: >-
+          {{ helm_install_path }} upgrade --install ingress-nginx ingress-nginx/ingress-nginx
+          --namespace ingress-nginx --create-namespace
+          --version {{ ingress_nginx_chart_version }}
+          --set controller.service.type=LoadBalancer
+          --set controller.ingressClassResource.default=true
+          --wait --timeout 5m
+      register: ingress_install
+      changed_when: "'has been upgraded' in ingress_install.stdout or 'has been installed' in ingress_install.stdout"
+      when: not ansible_check_mode

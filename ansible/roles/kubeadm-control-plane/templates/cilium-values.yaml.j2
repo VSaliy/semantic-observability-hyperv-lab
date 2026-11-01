@@ -1,0 +1,12 @@
+---
+# Cilium runs as the cluster CNI using cluster-pool IPAM so it owns the pod
+# CIDR that kubeadm advertised. kube-proxy is retained for simplicity.
+ipam:
+  mode: cluster-pool
+  operator:
+    clusterPoolIPv4PodCIDRList:
+      - "{{ kubernetes_pod_network_cidr }}"
+    clusterPoolIPv4MaskSize: 24
+kubeProxyReplacement: false
+operator:
+  replicas: 1

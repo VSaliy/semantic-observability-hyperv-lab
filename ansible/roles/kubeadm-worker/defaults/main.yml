@@ -1,0 +1,5 @@
+---
+kubeadm_worker_enabled: true
+
+# Present once the node has successfully joined the cluster.
+kubernetes_kubelet_conf: /etc/kubernetes/kubelet.conf

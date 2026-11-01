@@ -1,0 +1,146 @@
+---
+- name: Bootstrap the Kubernetes control plane
+  when: kubeadm_control_plane_enabled | bool
+  block:
+    - name: Check whether the control plane is already initialized
+      ansible.builtin.stat:
+        path: "{{ kubernetes_admin_conf }}"
+      register: kubeadm_admin_conf
+
+    - name: Render the kubeadm cluster configuration
+      ansible.builtin.template:
+        src: kubeadm-config.yaml.j2
+        dest: "{{ kubeadm_config_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Initialize the control plane with kubeadm
+      ansible.builtin.command:
+        cmd: "kubeadm init --config {{ kubeadm_config_path }} --upload-certs"
+      register: kubeadm_init
+      changed_when: kubeadm_init.rc == 0
+      when:
+        - not kubeadm_admin_conf.stat.exists
+        - not ansible_check_mode
+
+    - name: Ensure the root kube config directory exists
+      ansible.builtin.file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+
+    - name: Install the admin kube config for root
+      ansible.builtin.copy:
+        src: "{{ kubernetes_admin_conf }}"
+        dest: /root/.kube/config
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      when: not ansible_check_mode
+
+    - name: Check the installed Helm version
+      ansible.builtin.command: "{{ helm_install_path }} version --short"
+      register: helm_installed
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Install the pinned Helm release
+      when: ('v' ~ helm_version) not in (helm_installed.stdout | default(''))
+      block:
+        - name: Create a temporary directory for the Helm download
+          ansible.builtin.tempfile:
+            state: directory
+            suffix: helm
+          register: helm_tmp
+
+        - name: Download the Helm archive
+          ansible.builtin.get_url:
+            url: "{{ helm_download_url }}"
+            dest: "{{ helm_tmp.path }}/helm.tar.gz"
+            mode: "0644"
+
+        - name: Extract the Helm archive
+          ansible.builtin.unarchive:
+            src: "{{ helm_tmp.path }}/helm.tar.gz"
+            dest: "{{ helm_tmp.path }}"
+            remote_src: true
+
+        - name: Install the Helm binary
+          ansible.builtin.copy:
+            src: "{{ helm_tmp.path }}/linux-amd64/helm"
+            dest: "{{ helm_install_path }}"
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0755"
+      always:
+        - name: Remove the temporary Helm directory
+          ansible.builtin.file:
+            path: "{{ helm_tmp.path }}"
+            state: absent
+          when: helm_tmp.path is defined
+
+    - name: Add Helm chart repositories
+      ansible.builtin.command:
+        cmd: "{{ helm_install_path }} repo add {{ item.name }} {{ item.url }} --force-update"
+      loop: "{{ helm_chart_repositories }}"
+      register: helm_repo_add
+      changed_when: "'has been added' in helm_repo_add.stdout or 'has been updated' in helm_repo_add.stdout"
+      when: not ansible_check_mode
+
+    - name: Update the Helm repository cache
+      ansible.builtin.command:
+        cmd: "{{ helm_install_path }} repo update"
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Ensure the add-on manifest directory exists
+      ansible.builtin.file:
+        path: "{{ kube_addons_manifest_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render the Cilium Helm values
+      ansible.builtin.template:
+        src: cilium-values.yaml.j2
+        dest: "{{ kube_addons_manifest_dir }}/cilium-values.yaml"
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install the Cilium CNI
+      ansible.builtin.command:
+        cmd: >-
+          {{ helm_install_path }} upgrade --install cilium cilium/cilium
+          --namespace kube-system
+          --version {{ cilium_version }}
+          --values {{ kube_addons_manifest_dir }}/cilium-values.yaml
+          --wait --timeout 10m
+      environment:
+        KUBECONFIG: "{{ kubernetes_admin_conf }}"
+      register: cilium_install
+      changed_when: "'has been upgraded' in cilium_install.stdout or 'has been installed' in cilium_install.stdout"
+      when: not ansible_check_mode
+
+    - name: Generate a fresh worker join command
+      ansible.builtin.command:
+        cmd: kubeadm token create --print-join-command
+      environment:
+        KUBECONFIG: "{{ kubernetes_admin_conf }}"
+      register: kubeadm_join
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Publish the join command as a host fact
+      ansible.builtin.set_fact:
+        kubeadm_join_command: "{{ kubeadm_join.stdout | trim }}"
+      when:
+        - kubeadm_join.stdout is defined
+        - kubeadm_join.stdout | length > 0

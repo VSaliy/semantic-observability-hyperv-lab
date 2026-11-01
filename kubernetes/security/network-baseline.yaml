@@ -1,0 +1,10 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: platform-default-deny
+  namespace: platform-search
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
