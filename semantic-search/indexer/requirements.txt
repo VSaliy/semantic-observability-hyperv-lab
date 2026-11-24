@@ -250,9 +250,9 @@ kafka-python==2.3.2 \
     --hash=sha256:2d2469bcabc2551be7eaf7fb512e1241484d358800f2665b90e7e24fea84259d \
     --hash=sha256:e8a5e6f2c4ce13a8041669337038d5125e0e09e6d6f0911902ae5939e5b9595e
     # via semantic-observability-indexer (pyproject.toml)
-opensearch-py==2.7.1 \
-    --hash=sha256:5417650eba98a1c7648e502207cebf3a12beab623ffe0ebbf55f9b1b4b6e44e9 \
-    --hash=sha256:67ab76e9373669bc71da417096df59827c08369ac3795d5438c9a8be21cbd759
+opensearch-py==3.2.0 \
+    --hash=sha256:721a0d3b13fbed9e82278aed748285cf63a1855354ab7e73e3d4992d1b93418b \
+    --hash=sha256:f40fb3a295275422df2ad6d9459f667af94472d5a9e567072e9ecf163eb22613
     # via semantic-observability-indexer (pyproject.toml)
 opentelemetry-api==1.45.2 \
     --hash=sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34 \
