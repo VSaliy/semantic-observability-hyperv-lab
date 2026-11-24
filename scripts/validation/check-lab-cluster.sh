@@ -61,7 +61,7 @@ YAML
   "${kn[@]}" wait --for=condition=Ready pod/web --timeout=120s
 }
 start_server
-"${kn[@]}" exec web -- sh -c 'echo "$1" > /data/marker' sh "$ns"
+printf '%s\n' "$ns" | "${kn[@]}" exec -i web -- tee /data/marker >/dev/null
 "${kn[@]}" expose pod web --port=80 --target-port=8080
 "${kn[@]}" create ingress web --class=nginx --rule="$host/*=web:80"
 read_ingress() {
@@ -85,6 +85,8 @@ ip=$("${kn[@]}" get pod web -o jsonpath='{.status.podIP}')
 url="http://$ip:8080/marker"
 # Use the same image, destination and command for the allowed and denied paths.
 probe() {
+  # The shell inside the probe pod expands its positional URL argument.
+  # shellcheck disable=SC2016
   "${k[@]}" -n "$1" exec "$2" -- sh -c 'wget -q -T 3 -t 1 -O - "$1" || echo blocked' sh "$url"
 }
 start_probe() {
