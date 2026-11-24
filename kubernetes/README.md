@@ -36,3 +36,10 @@ with pinned Helm charts (versions mirror `/versions.yaml`):
 - `local-path-observability` — `no-provisioner` class for statically pinned volumes.
 
 Validate the manifests locally with `make kubernetes-validate` (CI also runs `kubeval`).
+
+After provisioning, run `bash scripts/validation/check-lab-cluster.sh LAB_CONTEXT` from a
+controller that can reach the MetalLB network. Pass the kubeconfig context for the Hyper-V
+lab. The check waits for the three lab nodes, reads a marker through ingress before and
+after replacing its pod, and checks that both tenant namespaces block egress to that
+otherwise reachable workload. It creates a temporary namespace, PVC, and probe pods and
+requests their deletion on exit. Repeat after a second provisioning run to check convergence.
