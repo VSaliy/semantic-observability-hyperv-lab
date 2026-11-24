@@ -10,6 +10,7 @@ Leakage counts both a response whose tenant differs from the expected one and an
 
 ## Baseline gate
 
+- With the dev stack seeded, run `python3 semantic-search/evaluation/capture_flagship.py > trade-search.json` from the repository root to save the actual top-five response for q-001. The CI evaluation job also prints this JSON, including scores and evidence links. The check requires five distinct trading documents and the matching incident with evidence.
 - `baseline.json` holds the accepted metrics and a `tolerance` of 0.005.
 - `evaluate_search.py --check-baseline semantic-search/evaluation/baseline.json` exits non-zero on any cross-tenant leakage or when a metric falls more than the tolerance below the baseline.
 - `scripts/validation/run-evaluation.sh` starts the dev stack, seeds it, waits for the expected document count and runs that gate. CI runs it as the `evaluation` job in `container-and-dependencies.yml`.

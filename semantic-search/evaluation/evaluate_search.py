@@ -64,6 +64,23 @@ def duration_from_range(start: str, end: str) -> str:
   return duration
 
 
+def search(entry: dict, token: str, top_k: int) -> dict:
+  request = urllib.request.Request(
+    API_URL,
+    data=json.dumps({
+      "query": entry["query"],
+      "environment": entry["environment"],
+      "timeRange": duration_from_range(entry["timeRange"]["from"], entry["timeRange"]["to"]),
+      "topK": top_k,
+      "mode": "HYBRID"
+    }).encode("utf-8"),
+    headers={"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    method="POST"
+  )
+  with urllib.request.urlopen(request, timeout=10) as response:
+    return json.load(response)
+
+
 def main() -> None:
   dataset = json.loads(DATASET.read_text(encoding="utf-8"))
   tokens: dict[str, str] = {}
@@ -77,23 +94,7 @@ def main() -> None:
       tokens[entry["tenantId"]] = get_token(entry["tenantId"])
     token = tokens[entry["tenantId"]]
     start = time.perf_counter()
-    request = urllib.request.Request(
-      API_URL,
-      data=json.dumps({
-        "query": entry["query"],
-        "environment": entry["environment"],
-        "timeRange": duration_from_range(entry["timeRange"]["from"], entry["timeRange"]["to"]),
-        "topK": 10,
-        "mode": "HYBRID"
-      }).encode("utf-8"),
-      headers={
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + token
-      },
-      method="POST"
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-      payload = json.loads(response.read().decode("utf-8"))
+    payload = search(entry, token, 10)
     latency += time.perf_counter() - start
     results = [item.get("documentId") or item.get("summary") for item in payload["results"]]
     if payload["interpretedFilters"]["tenant"] != entry["tenantId"]:

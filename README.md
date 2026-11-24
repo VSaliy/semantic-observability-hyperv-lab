@@ -87,7 +87,7 @@ curl -s http://localhost:8080/api/v1/search \
       }' | jq
 ```
 
-The seed fixtures carry fixed timestamps (2026-07-01, 09:50-10:15 UTC) so document IDs and the
+The seed fixtures carry fixed timestamps on 2026-07-01 so document IDs and the
 evaluation dataset stay deterministic. In `docker-compose.dev.yml` the query API therefore pins its
 clock with `QUERY_API_REFERENCE_TIME=2026-07-01T11:30:00Z`, so relative windows such as `PT2H`
 resolve to 09:30-11:30 UTC on that day. Leave the variable unset outside local development to use the
@@ -138,7 +138,7 @@ See [hyperv/README.md](hyperv/README.md) and [ansible/README.md](ansible/README.
 - `TenantIsolationIntegrationTest` proves isolation against a real OpenSearch container (Testcontainers) in all three search modes; CI fails if it is skipped.
 - Evidence URLs are validated at ingestion and re-checked at query time against per-tenant host allowlists (`tenant_valid_evidence_hosts` / `query.tenant-valid-evidence-hosts`, falling back to `valid_evidence_hosts`), and dropped links increment `query_api_evidence_links_dropped_total` (`QueryApiEvidenceLinksDropped` alert).
 - Sensitive attribute keys and secret-shaped value patterns (private keys, JWTs, bearer tokens, AWS keys, GitHub tokens, e-mail addresses, credential assignments) in summaries and string attributes are redacted before indexing, embedding, and dead-lettering.
-- Outside the `dev` profile, the query API requires `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri`, mandatory audience validation (`spring.security.oauth2.resourceserver.jwt.audiences`), and non-blank `jti` replay detection (`JtiReplayValidator`).
+- Outside the `dev` profile, the query API requires `spring.security.oauth2.resourceserver.jwt.issuer-uri` or `jwk-set-uri` and an accepted audience (`spring.security.oauth2.resourceserver.jwt.audiences`). Clients can reuse a valid bearer access token until expiry, with or without a `jti` claim.
 - The shared-secret HS256 login exists only when both `SPRING_PROFILES_ACTIVE=dev` and `QUERY_API_ALLOW_DEV_AUTH=true` are set (`docker-compose.dev.yml`), refuses to start if `dev` is combined with another profile or inside a Kubernetes cluster (`KUBERNETES_SERVICE_HOST`), and is rejected in Kubernetes manifests by `scripts/validation/validate-kubernetes.py`.
 - Containers run as non-root (UID/GID 10001), and the indexer commits Kafka offsets only after an event is handled.
 - See the [threat model](docs/security/threat-model.md) for threats, mitigations and remaining gaps.

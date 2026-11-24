@@ -52,4 +52,5 @@ python3 -m pip install -q -e ./semantic-search/indexer
 PYTHONPATH=semantic-search/indexer/src python3 scripts/bootstrap/seed-events.py
 wait_for "${expected_documents} indexed documents" indexed_count
 
+python3 semantic-search/evaluation/capture_flagship.py
 python3 semantic-search/evaluation/evaluate_search.py --check-baseline semantic-search/evaluation/baseline.json
