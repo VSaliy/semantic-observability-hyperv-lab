@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -43,7 +44,9 @@ public class SecurityConfiguration {
           "No accepted JWT audience is configured. Set " + AUDIENCES_PROPERTY + " to this API's audience.");
     }
     return http
-        .csrf(csrf -> csrf.disable())
+        // Search authenticates each call using its Authorization header, including POST requests.
+        .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+        .csrf(csrf -> csrf.ignoringRequestMatchers("/api/v1/search"))
         .authorizeHttpRequests(authorize -> authorize
             .requestMatchers("/actuator/health", "/actuator/info").permitAll()
             .anyRequest().authenticated())
