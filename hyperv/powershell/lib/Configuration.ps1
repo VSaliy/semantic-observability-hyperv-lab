@@ -199,6 +199,20 @@ function Get-LabAnsibleInventory {
   [void]$builder.AppendLine('  children:')
   foreach ($groupName in ($groups.Keys | Sort-Object)) {
     [void]$builder.AppendLine(('    {0}:' -f $groupName))
+    if ($groupName -eq 'kubernetes') {
+      $controlPlane = if ($Configuration['controlPlaneHost']) { $Configuration['controlPlaneHost'] } else { 'k8s-cp1' }
+      if ($controlPlane -notin $groups[$groupName].Name) { throw "Control plane '$controlPlane' is missing from the Kubernetes hosts." }
+      [void]$builder.AppendLine('      children:')
+      foreach ($subgroup in @('control_plane', 'workers')) {
+        [void]$builder.AppendLine(('        {0}:' -f $subgroup))
+        [void]$builder.AppendLine('          hosts:')
+        foreach ($entry in $groups[$groupName]) {
+          if (($entry.Name -eq $controlPlane) -eq ($subgroup -eq 'control_plane')) {
+            [void]$builder.AppendLine(('            {0}:' -f $entry.Name))
+          }
+        }
+      }
+    }
     [void]$builder.AppendLine('      hosts:')
     foreach ($entry in $groups[$groupName]) {
       [void]$builder.AppendLine(('        {0}:' -f $entry.Name))

@@ -102,9 +102,11 @@ def main():
         if {row["status"] for row in batch} != {200, 503}:
             raise ValueError("Expected both successful trades and pool timeouts")
     finally:
-        args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
-        change_pool(kube, reduced, original)
-        subprocess.run(ready, check=True)
+        try:
+            args.output.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        finally:
+            change_pool(kube, reduced, original)
+            subprocess.run(ready, check=True)
     report["recovered"] = trade()
     if report["recovered"]["status"] != 200 or report["recovered"]["changeId"] != "baseline":
         raise ValueError("Risk service did not recover")

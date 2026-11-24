@@ -1,3 +1,3 @@
 # Observability Kubernetes profile
 
-Future `core-observability` profile: OpenTelemetry Collector, Prometheus, Alertmanager, Grafana, Loki, Tempo, and MinIO.
+The [live trade profile](../live-trade/README.md) runs the OpenTelemetry Collector, Loki and Grafana. Prometheus, Alertmanager, Tempo and MinIO deployment remain planned.

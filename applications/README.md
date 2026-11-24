@@ -1,3 +1,3 @@
-# Application placeholders
+# Lab workloads
 
-These directories capture the future workload topology used by the observability lab. Milestone 1 seeds deterministic operational events instead of deploying the full services.
+The [live trade profile](../kubernetes/live-trade/README.md) runs trade-api and risk-service from the shared HTTP workload in `live-trade/`. The seeded Compose evaluation covers the broader planned topology with deterministic events.

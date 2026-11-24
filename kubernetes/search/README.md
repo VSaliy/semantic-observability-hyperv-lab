@@ -1,3 +1,3 @@
 # Search Kubernetes profile
 
-Future semantic-search profile: OpenSearch, query API, and semantic indexer deployments.
+The [live trade profile](../live-trade/README.md) deploys OpenSearch, the query API, the embedding service and the semantic indexer.

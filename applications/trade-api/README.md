@@ -1,3 +1,3 @@
 # trade-api
 
-Milestone note: this service is represented by deterministic seed events during Milestone 1. Runtime deployment arrives in a later milestone.
+The [live trade profile](../../kubernetes/live-trade/README.md) deploys the trade-api role from [service.py](../live-trade/service.py). A trade creates a request ID and forwards the risk-service result to the caller.

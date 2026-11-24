@@ -75,7 +75,7 @@ param(
   [string]$ClusterBootstrapEngine = 'wsl',
 
   # kubeconfig path as seen by the cluster-bootstrap engine (Linux/WSL path).
-  [string]$KubeconfigPath = '$HOME/.kube/config'
+  [string]$KubeconfigPath
 )
 
 Set-StrictMode -Version Latest
@@ -177,7 +177,7 @@ Write-Status 'All nodes are reachable over SSH.' -Level Success
 Write-Status 'Stage 4/5: regenerating the Ansible inventory from lab config...' -Level Step
 $inventoryPath = Join-Path -Path $repoRoot -ChildPath 'ansible\inventories\lab\hosts.yml'
 $inventory = Get-LabAnsibleInventory -Configuration $configuration
-Set-Content -LiteralPath $inventoryPath -Value $inventory -Encoding utf8
+Set-Content -LiteralPath $inventoryPath -Value $inventory -Encoding utf8 -NoNewline
 Write-Status ("Inventory written to {0}." -f $inventoryPath) -Level Success
 
 # --- Stage 5: Linux + Kubernetes bootstrap ---------------------------------
@@ -196,9 +196,9 @@ if ($ClusterBootstrapEngine -eq 'wsl') {
     throw 'WSL was not found. Install WSL (with ansible-playbook, kubectl, terraform) or use -ClusterBootstrapEngine bash, or -SkipClusterBootstrap and run the bootstrap from the admin node.'
   }
   $wslRepoRoot = ConvertTo-WslPath -Path $repoRoot
-  $remoteCommand = "cd '$wslRepoRoot' && KUBECONFIG='$KubeconfigPath' bash '$bootstrapScriptRel'"
-  Write-Status ("Running cluster bootstrap via WSL: {0}" -f $remoteCommand)
-  & wsl.exe -e bash -lc $remoteCommand
+  $wslArgs = @('--cd', $wslRepoRoot, '-e', 'env')
+  if ($KubeconfigPath) { $wslArgs += "KUBECONFIG=$KubeconfigPath" }
+  & wsl.exe @wslArgs bash $bootstrapScriptRel
   if ($LASTEXITCODE -ne 0) { throw "Cluster bootstrap failed (WSL exit code $LASTEXITCODE)." }
 }
 else {
@@ -208,7 +208,7 @@ else {
   }
   $bootstrapScript = Join-Path -Path $repoRoot -ChildPath 'scripts\deployment\bootstrap-cluster.sh'
   Write-Status ("Running cluster bootstrap via bash: {0}" -f $bootstrapScript)
-  $env:KUBECONFIG = $KubeconfigPath
+  if ($KubeconfigPath) { $env:KUBECONFIG = $KubeconfigPath }
   & $bash.Source $bootstrapScript
   if ($LASTEXITCODE -ne 0) { throw "Cluster bootstrap failed (bash exit code $LASTEXITCODE)." }
 }

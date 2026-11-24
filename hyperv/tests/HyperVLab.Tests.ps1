@@ -251,6 +251,8 @@ Describe 'Get-LabAnsibleInventory' {
     $inventory = Get-LabAnsibleInventory -Configuration $script:config
     $inventory | Should -Match 'admin:'
     $inventory | Should -Match 'kubernetes:'
+    $inventory | Should -Match '(?m)control_plane:\s+hosts:\s+k8s-cp1:'
+    $inventory | Should -Match '(?m)workers:\s+hosts:\s+k8s-worker1:'
   }
 
   It 'uses the static IP without CIDR suffix as ansible_host' {

@@ -66,7 +66,8 @@ def workload(name, image, *, env=None, args=None, command=None, files=None, moun
     ns, port = LAYOUT[name]
     items = [policy(name)]
     container = {"name": name, "image": image}
-    pod = {"automountServiceAccountToken": False, "containers": [container], "volumes": []}
+    # Service discovery uses DNS. Kubernetes' injected KAFKA_PORT conflicts with the broker entrypoint.
+    pod = {"automountServiceAccountToken": False, "enableServiceLinks": False, "containers": [container], "volumes": []}
     annotations = {}
     if env:
         container["env"] = [{"name": key, **(val if isinstance(val, dict) else {"value": val})}
@@ -77,6 +78,10 @@ def workload(name, image, *, env=None, args=None, command=None, files=None, moun
         container["command"] = command
     if group:
         pod["securityContext"] = {"fsGroup": group}
+    if ns == TRADING:
+        container["securityContext"] = {"runAsNonRoot": True, "runAsUser": 10001,
+                                        "allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True,
+                                        "capabilities": {"drop": ["ALL"]}}
     if files:
         data = {path.name: path.read_text(encoding="utf-8") for path in files}
         items.append(resource("ConfigMap", "live-" + name, ns, data=data))

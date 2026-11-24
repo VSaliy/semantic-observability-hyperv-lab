@@ -25,7 +25,7 @@ server {
   ssl_certificate /tls/tls.crt;
   ssl_certificate_key /tls/tls.key;
   location / { root /usr/share/nginx/html; default_type application/json; }
-  location = /.well-known/openid-configuration { alias /usr/share/nginx/html/openid-configuration; }
+  location = /.well-known/openid-configuration { default_type application/json; alias /usr/share/nginx/html/openid-configuration; }
 }
 CONF
 ks=("${k[@]}" -n platform-security)

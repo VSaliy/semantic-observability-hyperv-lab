@@ -18,7 +18,7 @@ provisioned and reachable:
    provision the `trading` and `market-data` tenants.
 
 ```bash
-export KUBECONFIG="$HOME/.kube/config"   # kubeconfig for the lab cluster
+export KUBECONFIG="$HOME/.kube/hyperv-lab.conf"   # dedicated file; created on first bootstrap
 # Optional: override the inventory used for both playbooks.
 # export INVENTORY_PATH="$PWD/ansible/inventories/lab/hosts.yml"
 ./scripts/deployment/bootstrap-cluster.sh
