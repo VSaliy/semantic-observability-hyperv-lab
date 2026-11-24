@@ -10,7 +10,7 @@ installation that turns those nodes into a Kubernetes cluster (Milestone 3).
 ansible/
   ansible.cfg              # inventory, roles_path, sudo defaults
   requirements.yml         # community.general, ansible.posix collections
-  group_vars/
+  inventories/lab/group_vars/
     all.yml                # timezone, swap, kernel modules, pinned versions
     kubernetes.yml         # pod/service CIDRs, control-plane endpoint, add-on versions, MetalLB pool
   inventories/lab/hosts.yml  # kubernetes -> control_plane + workers subgroups
@@ -68,8 +68,8 @@ The inventory can be regenerated from the Hyper-V configuration with
 
 ## Versions
 
-Pinned component versions in `group_vars/all.yml` mirror the root
+Pinned component versions in `inventories/lab/group_vars/all.yml` mirror the root
 `versions.yaml` catalogue (Kubernetes 1.31.1, containerd 1.7.22, Helm 3.16.2).
-Milestone 3 add-on versions live in `group_vars/kubernetes.yml` (Cilium 1.16.1,
+Milestone 3 add-on versions live in `inventories/lab/group_vars/kubernetes.yml` (Cilium 1.16.1,
 MetalLB 0.14.8, ingress-nginx controller 1.11.3 / chart 4.11.3, cert-manager
 1.16.1).

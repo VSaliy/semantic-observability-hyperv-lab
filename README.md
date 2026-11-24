@@ -31,10 +31,11 @@ The implementation does **not** use an LLM to invent causes. Search results rema
 | 1 Runnable vertical slice | Implemented | Kafka, OpenSearch, deterministic embedding service, semantic indexer, query API, seed events, evaluation dataset, tenant isolation tests. |
 | 2 Hyper-V and Linux automation | Implemented | Hyper-V VM lifecycle module, cloud-init NoCloud seeding, and idempotent Ansible roles (baseline, containerd, kubeadm prerequisites, admin tools, time-sync validation). |
 | 3 Kubernetes platform | Implemented | kubeadm control-plane and worker roles, Cilium CNI, MetalLB, ingress-nginx, cert-manager, default local-path storage, and the tenant Terraform module applied for both lab tenants. |
-| 4 Core observability | Planned | OTel, Prometheus, Alertmanager, Grafana, Loki, Tempo, MinIO. |
+| 4 Core observability | Partial | Live trade profile with OTel, Loki, Grafana and evidence-linked search. Prometheus, Alertmanager, Tempo and MinIO deployment remain planned. |
 
 ## Profiles
 
+- [Live trade incident](kubernetes/live-trade/README.md) — deploy the search pipeline and a trading workload to the lab cluster, induce a bounded database pool timeout, and follow its indexed evidence to the original Loki log.
 - `core-observability` - future Kubernetes deployment profile
 - `semantic-search` - current local vertical slice
 - `analytics-comparison` - planned optional backend comparison profile

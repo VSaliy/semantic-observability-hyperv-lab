@@ -13,8 +13,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ANSIBLE_DIR="${REPO_ROOT}/ansible"
 INVENTORY_PATH="${INVENTORY_PATH:-${ANSIBLE_DIR}/inventories/lab/hosts.yml}"
-KUBECONFIG_PATH="${KUBECONFIG:-${HOME}/.kube/config}"
+KUBECONFIG_PATH="${KUBECONFIG:-${HOME}/.kube/hyperv-lab.conf}"
 TENANT_ENV="${REPO_ROOT}/terraform/environments/lab"
+export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-${ANSIBLE_DIR}/ansible.cfg}"
+
+# Verify SSH authentication to every VM before changing any node.
+ansible -i "${INVENTORY_PATH}" all -m ping
 
 echo "==> Applying node baseline (containerd, kubeadm prerequisites, admin tools)"
 ansible-playbook -i "${INVENTORY_PATH}" \
@@ -25,6 +29,27 @@ ansible-playbook -i "${INVENTORY_PATH}" \
   "${ANSIBLE_DIR}/playbooks/cluster.yml"
 
 echo "==> Reconciling declarative platform and security manifests"
+umask 077
+private_dir=$(mktemp -d)
+trap 'rm -f "$private_dir/admin.conf"; rmdir "$private_dir"' EXIT
+ansible -i "${INVENTORY_PATH}" control_plane --become -m fetch \
+  -a "src=/etc/kubernetes/admin.conf dest='$private_dir/admin.conf' flat=yes"
+if [[ -f "$KUBECONFIG_PATH" ]]; then
+  # Refuse to apply manifests to an unrelated current context.
+  trust_root() {
+    kubectl --kubeconfig "$1" config view --raw --minify --flatten \
+      -o jsonpath='{.clusters[0].cluster.certificate-authority-data}'
+  }
+  expected=$(trust_root "$private_dir/admin.conf")
+  [[ -n $expected && $(trust_root "$KUBECONFIG_PATH") == "$expected" ]] || {
+    echo "Kubeconfig does not identify the provisioned lab: $KUBECONFIG_PATH" >&2
+    exit 1
+  }
+else
+  mkdir -p "$(dirname "$KUBECONFIG_PATH")"
+  install -m 600 "$private_dir/admin.conf" "$KUBECONFIG_PATH"
+fi
+kubectl --kubeconfig "$KUBECONFIG_PATH" get nodes k8s-cp1 k8s-worker1 k8s-worker2
 kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f "${REPO_ROOT}/kubernetes/platform"
 kubectl --kubeconfig "${KUBECONFIG_PATH}" apply -f "${REPO_ROOT}/kubernetes/security"
 

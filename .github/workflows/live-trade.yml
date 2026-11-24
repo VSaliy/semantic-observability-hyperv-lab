@@ -1,0 +1,39 @@
+name: live-trade
+on:
+  pull_request:
+    paths:
+      - 'applications/live-trade/**'
+      - 'kubernetes/live-trade/**'
+      - 'otel/live-trade/**'
+      - 'scripts/validation/*live*'
+      - 'scripts/deployment/deploy-live-trade.sh'
+      - 'semantic-search/**'
+      - '.github/workflows/live-trade.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  incident:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - run: kind create cluster --name live-trade-ci --wait 120s
+      - run: docker build -t live-indexer:ci semantic-search/indexer
+      - run: docker build -t live-query:ci semantic-search/query-api
+      - run: kind load docker-image --name live-trade-ci live-indexer:ci live-query:ci
+      - run: bash scripts/validation/run-live-ci.sh
+      - if: failure()
+        run: |
+          kubectl get pods,pvc -A
+          kubectl get events -A --field-selector type=Warning | tail -50
+          for ns in platform-search platform-messaging platform-observability tenant-trading; do
+            for pod in $(kubectl -n "$ns" get pods -o name); do
+              kubectl -n "$ns" logs "$pod" --all-containers --tail=12 || true
+            done
+          done
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: live-trade-incident
+          path: target/live-trade.json
