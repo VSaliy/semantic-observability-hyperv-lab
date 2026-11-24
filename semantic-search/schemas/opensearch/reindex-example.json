@@ -1,0 +1,6 @@
+{
+  "actions": [
+    {"remove": {"index": "observability-documents-v1", "alias": "observability-documents"}},
+    {"add": {"index": "observability-documents-v2", "alias": "observability-documents"}}
+  ]
+}

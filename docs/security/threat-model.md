@@ -1,0 +1,233 @@
+# Threat model: semantic search vertical slice
+
+Scope: the local slice (`docker-compose.dev.yml`) and the code that will be reused in the target
+deployment: seed/producer → Kafka `platform.telemetry-events` → Python indexer → OpenSearch alias
+`observability-documents` → Spring Boot query API (`POST /api/v1/search`).
+
+**No LLM generates answers.** The query API returns stored, ranked documents verbatim. Stored text is
+never executed, templated into a prompt or interpreted as instructions by any component. This
+removes the main prompt-injection impact today; it must be revisited before any LLM or agent consumes
+search results (see threat 4).
+
+Assets: tenant data in the index, the integrity of search results, evidence links shown to operators,
+and the credentials and tokens that gate access. Anything marked *future work* is not implemented.
+
+## Trust boundaries
+
+1. Producers → Kafka: events are untrusted input until validated by the indexer.
+2. Indexer → OpenSearch: the indexer is the only writer. OpenSearch security is disabled in dev
+   (`DISABLE_SECURITY_PLUGIN=true`), so the network boundary is the only control there.
+3. Client → query API: the JWT is the only source of tenant identity.
+
+## Threats
+
+### 1. Search poisoning
+
+- **Asset / attacker:** ranking and content of results. A tenant user or compromised producer emits
+  crafted events (keyword stuffing, fake incidents, flooding a template) to push content up or bury
+  real evidence.
+- **Mitigations:** JSON-Schema validation and dead-lettering of invalid events
+  (`semantic-search/indexer/src/semantic_indexer/validation.py`). Documents are aggregates with
+  deterministic IDs, so repeating an event cannot multiply documents. Stored `contributions` are
+  capped at `max_contributions_per_aggregate` (default 100, retaining the earliest contribution and
+  the most recent `max_contributions_per_aggregate - 1` contributions while keeping total
+  `occurrences` accurate) so a noisy template cannot grow a single document without bound, while
+  duplicate detection is decoupled and tracked across a separate bounded list of up to
+  `max_tracked_event_ids_per_aggregate` (default 1000) seen event IDs, ensuring redeliveries within
+  the last N events per aggregate are absorbed (`semantic_indexer/documents.py`,
+  `semantic_indexer/service.py`, ADR-0004). The cosine floor `query.min-semantic-similarity`
+  (`application.yaml`, applied in `infrastructure/OpenSearchGateway.java`) stops unrelated vectors
+  from padding results. The query API also validates `query.default-time-range` and
+  `query.max-time-range` at startup (default `PT168H`, rejecting non-positive or excessive `timeRange`
+  values) and enforces a per-tenant sliding-window rate limit (`query.rate-limit-per-minute`, default
+  120, `application/TenantRateLimiter.java`, incrementing `query_api_rate_limited_total` and returning
+  HTTP 429 with a `Retry-After` header). Poison stays inside the producing tenant because of the
+  tenant filter.
+- **Tests:** `test_invalid_event_reaches_dead_letter_topic`,
+  `test_poison_messages_do_not_block_following_payloads`, `test_duplicate_delivery_creates_no_duplicate`,
+  `test_log_events_with_same_template_aggregate`,
+  `test_aggregate_size_is_capped_while_occurrences_continue_counting`,
+  `test_redelivering_trimmed_event_is_detected_as_duplicate_within_tracking_window`
+  (`semantic-search/indexer/tests/test_event_processor.py`),
+  `test_aggregate_document_caps_contributions_while_preserving_first_and_latest`
+  (`semantic-search/indexer/tests/test_documents.py`), and `TenantRateLimiterTest`,
+  `TenantSearchServiceTest`,
+  `SearchControllerTest.returnsTooManyRequestsWithRetryAfterHeaderWhenRealTenantRateLimitIsExceeded`.
+- **Gaps (future work):** producer authentication and authorisation on Kafka (any client that can
+  reach the broker can publish for any `tenantId`); the search rate limiter is in-memory per API
+  instance (so `N` replicas allow `N ×` the configured rate — production deployments need a shared
+  rate limiter at the API gateway or backed by Redis) and Kafka ingestion has no per-tenant rate
+  limit; ranking signals that discount unverified sources.
+
+### 2. Cross-tenant leakage
+
+- **Asset / attacker:** other tenants' operational data. An authenticated user of tenant A, or a
+  forged request, tries to read tenant B.
+- **Mitigations:** the tenant comes only from the JWT claim named by `query.required-tenant-claim`
+  (`application/TenantSearchService.java`). The request body rejects unknown fields such as
+  `tenantId` (`spring.jackson.deserialization.fail-on-unknown-properties`). Every lexical, vector and
+  hybrid query carries server-side `tenant_id` and `timestamp` filters
+  (`infrastructure/OpenSearchGateway.java`). Aggregates are never merged across tenants
+  (`semantic_indexer/documents.py`). See ADR-0005.
+- **Tests:** `TenantIsolationIntegrationTest` (real OpenSearch via Testcontainers, all three search
+  modes; CI fails if it is skipped); `SearchControllerTest.derivesTenantFromAuthentication` and
+  `rejectsUnknownTenantFieldInRequest`; `test_same_alert_name_in_another_tenant_stays_separate`;
+  `make evaluate-search` reports `crossTenantLeakageCount`.
+- **Gaps (future work):** OpenSearch has no authentication in dev, so anything that can reach port
+  9200 bypasses tenant filtering. The target deployment needs OpenSearch security, network policy
+  and per-tenant roles or filtered aliases as defence in depth.
+
+### 3. Manipulated evidence links
+
+- **Asset / attacker:** operators who click evidence links. An event producer smuggles phishing,
+  `javascript:` or internal-metadata URLs into `evidence[].url`.
+- **Mitigations:** evidence URLs must use `http` or `https` and have a host in the tenant's allowlist
+  (`tenant_valid_evidence_hosts`, falling back to `valid_evidence_hosts` for unlisted tenants),
+  otherwise the event is dead-lettered (`semantic_indexer/validation.py`). The comparison is on the
+  exact authority, so userinfo, ports, case variants and look-alike hosts are rejected. The query API
+  re-applies the per-tenant allowlist (`query.tenant-valid-evidence-hosts`, falling back to
+  `query.valid-evidence-hosts`) to every result and drops links that fail it
+  (`application/EvidencePolicy.java`, called from `application/TenantSearchService.java`), so
+  documents written before an allowlist change, for another tenant's host, or by anything other than
+  the indexer, cannot hand out foreign links. Dropped links increment
+  `query_api_evidence_links_dropped_total`, and the `QueryApiEvidenceLinksDropped` Prometheus rule
+  alerts when links are dropped (`slo/prometheus-rules.yaml`).
+- **Tests:** `test_evidence_urls_outside_the_allowlist_are_rejected` (schemes, userinfo, ports,
+  look-alike hosts), `test_per_tenant_evidence_allowlist_restricts_hosts_by_tenant`,
+  `EvidencePolicyTest`,
+  `TenantIsolationIntegrationTest.evidenceLinksOutsideTheAllowlistAreNotReturned` against real
+  OpenSearch, and `slo/prometheus-rules.test.yaml` (`QueryApiEvidenceLinksDropped`).
+- **Gaps (future work):** the per-tenant allowlist is configured statically in application settings
+  rather than managed dynamically per tenant, and the link target's content is not checked.
+
+### 4. Prompt injection stored in indexed documents
+
+- **Asset / attacker:** any future LLM or agent that reads search results. An attacker puts
+  instructions in log messages, incident summaries or change descriptions.
+- **Mitigations:** none are needed today because no LLM generates answers or consumes results; the
+  API returns text as data. Results are scoped to the caller's tenant, which limits whose context an
+  attacker can reach.
+- **Tests:** none (nothing executes the text).
+- **Gaps (future work):** before adding answer generation or agents, treat retrieved text as
+  untrusted: delimit it, flag instruction-like content, give the model no tools that act on results
+  without confirmation, and add an adversarial evaluation set.
+
+### 5. Sensitive-data leakage into the index or embeddings
+
+- **Asset / attacker:** secrets and personal data in telemetry. Anyone with read access to the
+  index, the dead-letter topic, logs or a third-party embedding provider is the attacker.
+- **Mitigations:** attribute values whose key contains sensitive markers are replaced before
+  indexing, embedding and dead-lettering (`semantic_indexer/redaction.py`, `semantic_indexer/service.py`).
+  Matching is performed on key segments split by `.`, `_`, `-` and camelCase boundaries
+  (`is_sensitive_key`), avoiding false-positive redaction of innocuous operational keys such as
+  `db.connection.state` and `tokens_used` while consistently redacting `password`, `client_secret`,
+  `access_token`, `connection_string`, `Authorization`, and `set-cookie`. Value patterns are scanned
+  in the event `summary` and in string attributes: private-key blocks, JWTs, `Bearer` tokens, AWS
+  access keys, GitHub tokens, e-mail addresses (bounded with alphabetic TLDs to eliminate ReDoS) and
+  assignment patterns (`password=`/`token:`, requiring secret-like shapes to prevent redacting ordinary
+  prose such as `refresh token: connection refused`). Free-text fields enforce input length caps at
+  validation (4 KiB for summary, 8 KiB for attribute string values) so regular expressions never run
+  on unbounded payloads. Evidence URLs (`evidence[].url`) have user credentials stripped from `netloc`
+  (`userinfo@`) and sensitive query parameters redacted with an RFC 3986-safe token (`REDACTED`).
+  Dead-letter messages pass the failure `reason` through `redact_text` and truncate to 500 characters,
+  and validation errors omit input values so sensitive inputs in rejected events never leak in dead letters.
+  The embedding input is the redacted aggregate text. Messages that are not JSON objects or that
+  exceed size/depth limits are dead-lettered as a size, SHA-256 and origin only, never their bytes.
+- **Tests:** `test_redacted_values_never_reach_opensearch`,
+  `test_sensitive_value_patterns_are_redacted`, `test_ordinary_text_is_unchanged`,
+  `test_summary_and_attributes_are_redacted_before_index_and_embedding`,
+  `test_dead_letter_summary_is_redacted`,
+  `test_redact_evidence_url_preserves_safe_params_and_redacts_secrets`,
+  `test_evidence_urls_are_redacted_before_indexing_and_dead_lettering`,
+  `test_embedding_failure_dead_letter_payload_is_redacted`,
+  `test_validation_failure_dead_letter_is_redacted`,
+  `test_undecodable_message_is_dead_lettered_without_content_and_committed`,
+  `test_email_pattern_bounded_and_requires_alpha_tld`,
+  `test_assignment_pattern_distinguishes_secrets_from_prose`,
+  `test_sensitive_key_segment_matching`,
+  `test_redact_evidence_url_strips_userinfo`,
+  `test_adversarial_redos_performance`,
+  `test_free_text_length_caps_at_validation`,
+  `test_secret_in_rejected_payload_does_not_appear_in_dead_letter_reason_or_payload`.
+- **Gaps (future work):** pattern scanning is best effort: names, addresses, card numbers and
+  secrets without a recognisable shape are not detected, and `service`
+  fields and identifiers are not scanned. Add schema-level data classification and a
+  retention policy.
+
+### 6. Forged or replayed JWTs
+
+- **Asset / attacker:** identity and tenant claim. An attacker forges a token, replays a stolen one,
+  or attempts algorithm confusion.
+- **Mitigations:** outside the `dev` profile the API validates tokens only through standard Spring
+  resource-server configuration (`spring.security.oauth2.resourceserver.jwt.issuer-uri` or
+  `jwk-set-uri`) with the default signature, expiry and not-before checks. An HS256 token is not
+  accepted by a JWKS decoder. Without any decoder, or without
+  `spring.security.oauth2.resourceserver.jwt.audiences`, the application refuses to start
+  (`security/SecurityConfiguration.java`); Spring then rejects tokens whose `aud` does not contain the
+  configured audience, so a token minted for another service by the same issuer is refused. Bearer
+  access tokens remain reusable until `exp` (with or without a `jti` claim); replay is mitigated by
+  short token lifetime (`exp`), TLS in transit and audience binding rather than `jti` tracking. The
+  tenant claim is mandatory (`application/TenantSearchService.java`).
+- **Tests:** `ResourceServerAuthenticationTest` (an HS256 token signed with the dev secret gets 401, a
+  token from the configured JWKS and audience gets 200 and succeeds on consecutive requests, a token
+  without `jti` gets 200, and a token for another audience or without one gets 401),
+  `StartupWithoutJwtConfigurationTest` (also: no audience configured fails startup),
+  `DevProfileAuthenticationTest` (wrong secret, wrong issuer and missing token all give 401; consecutive
+  requests with the same valid token succeed).
+- **Gaps (future work):** enforce short access-token lifetimes, TLS termination and token revocation /
+  sender-constrained tokens (mTLS or DPoP) once Keycloak and ingress TLS arrive in a later milestone.
+
+### 7. Abuse of the dev authentication shortcut
+
+- **Asset / attacker:** the whole API. Anyone who learns the public dev secret
+  (`local-dev-secret-local-dev-secret`, which is in this repository) and reaches a deployment that
+  enables the shortcut.
+- **Mitigations:** the shared-secret HS256 decoder, the dev issuer and the pinned reference clock
+  exist only under the `dev` Spring profile (`security/DevJwtConfiguration.java`,
+  `application-dev.yaml`). There is no default secret anywhere else, the profile logs a warning at
+  startup, and the secret must be at least 32 bytes. The profile alone is not enough: the decoder
+  also requires `query.allow-dev-auth=true` (`QUERY_API_ALLOW_DEV_AUTH`), which only
+  `docker-compose.dev.yml` sets, so a stray `SPRING_PROFILES_ACTIVE=dev` fails at startup. Conversely,
+  setting `query.allow-dev-auth=true` outside the `dev` profile fails startup in
+  `security/SecurityConfiguration.java`, and `security/DevJwtConfiguration.java` refuses to start if
+  `dev` is combined with any non-dev profile or if `KUBERNETES_SERVICE_HOST` is present in the
+  environment. In CI, `scripts/validation/validate-kubernetes.py` rejects any Kubernetes manifest that
+  enables the `dev` profile or `query.allow-dev-auth`, and the `shell-and-security` job fails if any
+  file other than the dev compose file, the dev profile yaml, tests and docs references the dev
+  profile or that flag.
+- **Tests:** `DevProfileAuthenticationTest`, `ResourceServerAuthenticationTest`,
+  `StartupWithoutJwtConfigurationTest.devProfileAloneIsNotEnough`,
+  `StartupWithoutJwtConfigurationTest.failsWhenAllowDevAuthIsEnabledOutsideDevProfile`,
+  `StartupWithoutJwtConfigurationTest.failsWhenDevProfileIsCombinedWithDeploymentProfile`,
+  `StartupWithoutJwtConfigurationTest.failsWhenDevProfileRunsInsideKubernetesCluster`.
+- **Gaps (future work):** an operator on a non-Kubernetes VM host who explicitly sets only the `dev`
+  profile and `query.allow-dev-auth=true` without `KUBERNETES_SERVICE_HOST` can still start the API in
+  dev mode; enforce cluster-side admission policy (e.g. Kyverno/Gatekeeper) once cluster admission
+  controllers are deployed.
+
+### 8. Kafka redelivery and replay
+
+- **Asset / attacker:** index integrity. A crash, a rebalance, an operator replaying a topic, or a
+  malicious producer re-sending events causes duplicates or lost events.
+- **Mitigations:** the indexer commits `offset + 1` per partition only after
+  `EventProcessor.process_payload` returns, so delivery is at-least-once
+  (`semantic_indexer/runtime.py`). If processing raises, nothing is committed and the message is
+  redelivered after restart. Aggregates are rebuilt from per-event contributions, skip known event IDs
+  within a bounded deduplication window (`max_tracked_event_ids_per_aggregate`, default 1000) and use
+  optimistic-concurrency writes, so redelivery and full replays converge on the same documents
+  (`semantic_indexer/service.py`, `semantic_indexer/opensearch_io.py`, ADR-0004). Messages that are not
+  JSON objects, exceed message size limits (1 MiB), or exceed JSON nesting depth (32) are caught
+  before deep processing (including `RecursionError` guards in `decode_message`), dead-lettered as
+  digest/metadata only, and committed to prevent unhandled poison-message crash loops. Furthermore,
+  dead-letter publishing verifies broker receipt (`future.get(timeout=...)`) before committing offsets,
+  preventing silent message loss if the dead-letter broker is unreachable.
+- **Tests:** `test_runtime_commits.py` (commit after success, none on failure, dead letters
+  committed, failed dead-letter delivery prevents offset commit);
+  `test_duplicate_delivery_creates_no_duplicate`, `test_aggregates_do_not_depend_on_delivery_order`,
+  `test_write_conflict_is_retried`, `test_replayed_events_converge_on_aggregates`,
+  `test_stale_write_is_rejected`, `test_deeply_nested_json_is_rejected_and_committed`,
+  `test_nested_structure_exceeding_max_depth_is_rejected`,
+  `test_oversized_payload_is_rejected_as_undecodable_and_committed`.
+- **Gaps (future work):** a replay with a *new* `eventId` is
+  indistinguishable from a new event. Commits are per message and synchronous, trading throughput for
+  simplicity.

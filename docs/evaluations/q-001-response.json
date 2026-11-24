@@ -1,0 +1,102 @@
+{
+  "queryId": "qry-bf2bcb93",
+  "interpretedFilters": {
+    "tenant": "trading",
+    "environment": "production",
+    "from": "2026-07-01T09:30:00Z",
+    "to": "2026-07-01T11:30:00Z"
+  },
+  "results": [
+    {
+      "documentId": "ebbfda13cd45e48b0576d4c8",
+      "type": "incident",
+      "score": 0.51,
+      "explanation": [
+        "keyword relevance",
+        "within time window",
+        "same change"
+      ],
+      "summary": "Production trade requests intermittently fail because risk-service exhausted its database pool after CHG-0184. Resolved: restore previous pool configuration.",
+      "evidence": [
+        {
+          "type": "incident",
+          "system": "opensearch",
+          "url": "https://opensearch.example/app/discover#/INC-0042"
+        }
+      ]
+    },
+    {
+      "documentId": "e5e3771811f510e416182691",
+      "type": "alert",
+      "score": 0.33,
+      "explanation": [
+        "keyword relevance",
+        "within time window",
+        "same change"
+      ],
+      "summary": "Elevated HTTP 503 responses from trade-api. (2 notifications)",
+      "evidence": [
+        {
+          "type": "alert",
+          "system": "grafana",
+          "url": "https://grafana.example/alerting/trade-api-503"
+        }
+      ]
+    },
+    {
+      "documentId": "858a7ad2a96919625643a2ac",
+      "type": "trace_summary",
+      "score": 0.26,
+      "explanation": [
+        "keyword relevance",
+        "within time window",
+        "same change"
+      ],
+      "summary": "Client retries amplified trade request traffic threefold during the risk-service slowdown.",
+      "evidence": [
+        {
+          "type": "dashboard",
+          "system": "grafana",
+          "url": "https://grafana.example/d/trade-api-retries"
+        }
+      ]
+    },
+    {
+      "documentId": "405eb5bcc3ea4dccec5b124a",
+      "type": "runbook",
+      "score": 0.25,
+      "explanation": [
+        "keyword relevance",
+        "semantic similarity",
+        "within time window",
+        "same change"
+      ],
+      "summary": "Runbook updated to restore the previous risk-service database pool configuration.",
+      "evidence": [
+        {
+          "type": "runbook",
+          "system": "grafana",
+          "url": "https://grafana.example/docs/runbooks/restore-risk-pool"
+        }
+      ]
+    },
+    {
+      "documentId": "aea71dac4b1d98e5afce7fc9",
+      "type": "trace_summary",
+      "score": 0.24,
+      "explanation": [
+        "keyword relevance",
+        "within time window",
+        "same change"
+      ],
+      "summary": "Trade requests stalled on risk-service database checks and returned intermittent HTTP 503.",
+      "evidence": [
+        {
+          "type": "trace",
+          "system": "grafana",
+          "url": "https://grafana.example/tempo/trace-001"
+        }
+      ]
+    }
+  ]
+}

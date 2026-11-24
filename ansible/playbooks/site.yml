@@ -1,0 +1,19 @@
+---
+- name: Apply the shared lab baseline
+  hosts: all
+  become: true
+  roles:
+    - baseline
+
+- name: Prepare Kubernetes nodes
+  hosts: kubernetes
+  become: true
+  roles:
+    - containerd
+    - kubernetes-prerequisites
+
+- name: Install administrative tooling
+  hosts: admin
+  become: true
+  roles:
+    - admin-tools

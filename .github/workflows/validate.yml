@@ -1,0 +1,90 @@
+name: validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  docs-and-yaml:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: pip install jsonschema pyyaml yamllint
+      - run: ./scripts/validation/validate-json-schema.py
+      - run: yamllint .
+      - run: python semantic-search/evaluation/check_openapi.py
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: '3.12'
+      # Test against the locked runtime versions the image ships, then add dev tools.
+      - run: pip install --require-hashes -r semantic-search/indexer/requirements.txt
+      - run: pip install -e semantic-search/indexer[dev] && pip check
+      - run: python -m ruff check semantic-search/indexer/src semantic-search/indexer/tests scripts
+      - run: python -m mypy semantic-search/indexer/src
+      # The OpenSearch integration tests skip without Docker locally; in CI that must fail.
+      - run: pytest -rs semantic-search/indexer/tests
+        env:
+          REQUIRE_DOCKER_TESTS: '1'
+
+  java:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3  # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: mvn -q -f semantic-search/query-api/pom.xml test
+      # The isolation test skips itself without Docker; in CI a skip must fail the job.
+      - name: Require tenant isolation test to run against OpenSearch
+        run: |
+          report=semantic-search/query-api/target/surefire-reports/TEST-com.example.observability.search.api.TenantIsolationIntegrationTest.xml
+          if ! grep -q 'skipped="0"' "$report"; then
+            echo "::error::TenantIsolationIntegrationTest did not run; check the Docker/Testcontainers setup"
+            exit 1
+          fi
+
+  shell-and-security:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+        with:
+          # gitleaks scans every commit in the pull request, not only the tip.
+          fetch-depth: 0
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: find scripts -name '*.sh' -print0 | xargs -0 -r shellcheck
+      - name: The dev Spring profile is enabled only by the local dev compose file
+        run: |
+          if grep -rIEn 'SPRING_PROFILES_ACTIVE.*dev|spring\.profiles\.active[=:].*dev|QUERY_API_ALLOW_DEV_AUTH' \
+              --exclude-dir=.git --exclude-dir=target --exclude-dir=docs --exclude=README.md \
+              --exclude=docker-compose.dev.yml --exclude=application-dev.yaml --exclude=validate.yml \
+              --exclude='*Test.java' .; then
+            echo 'The dev profile or QUERY_API_ALLOW_DEV_AUTH is referenced outside docker-compose.dev.yml' >&2
+            exit 1
+          fi
+      - uses: zricethezav/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7  # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  terraform-and-kubernetes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd  # v3.1.2
+      - run: terraform -chdir=terraform fmt -check -recursive
+      - run: terraform -chdir=terraform/environments/lab init -backend=false -input=false
+      - run: terraform -chdir=terraform/environments/lab validate
+      - uses: azure/setup-kubectl@776406bce94f63e41d621b960d78ee25c8b76ede  # v4.0.1
+      - run: docker run --rm -v "$PWD:/work" -w /work ghcr.io/yannh/kubeconform:v0.6.7 -ignore-missing-schemas kubernetes

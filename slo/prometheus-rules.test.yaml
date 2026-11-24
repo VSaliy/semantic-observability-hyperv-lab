@@ -1,0 +1,78 @@
+rule_files:
+  - prometheus-rules.yaml
+evaluation_interval: 1m
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_processing_seconds_bucket{le="120"}'
+        values: '0 1 2 3 4 5'
+      - series: 'semantic_indexer_processing_seconds_bucket{le="+Inf"}'
+        values: '0 1 2 3 4 5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SemanticIndexingDelayHigh
+        exp_alerts: []
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_dead_letter_events_total'
+        values: '0+10x20'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: SemanticIndexerDeadLetterRateHigh
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: SemanticIndexerDeadLetterRateHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/semantic-dead-letters
+            exp_annotations:
+              summary: Events are being dead-lettered faster than 0.1 per second; inspect semantic.dead-letter for a bad producer or poison input.
+  - interval: 1m
+    input_series:
+      - series: 'query_api_evidence_links_dropped_total'
+        values: '0+1x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: QueryApiEvidenceLinksDropped
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: QueryApiEvidenceLinksDropped
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/dropped-evidence-links
+            exp_annotations:
+              summary: The query API dropped evidence links outside the tenant allowlist; inspect OpenSearch documents and producer inputs.
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_embedding_retries_total'
+        values: '0+10x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SemanticIndexerEmbeddingRetriesHigh
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SemanticIndexerEmbeddingRetriesHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/semantic-embedding-retries
+            exp_annotations:
+              summary: Semantic indexer embedding retries exceeded 0.1 per second; inspect embedding-service health.
+  - interval: 1m
+    input_series:
+      - series: 'semantic_indexer_write_conflicts_total'
+        values: '0+10x12'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: SemanticIndexerWriteConflictsHigh
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: SemanticIndexerWriteConflictsHigh
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              runbook_url: https://grafana.example/docs/runbooks/semantic-write-conflicts
+            exp_annotations:
+              summary: Semantic indexer write conflicts exceeded 0.1 per second; inspect concurrent consumers or noisy aggregates.
