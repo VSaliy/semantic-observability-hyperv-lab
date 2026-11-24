@@ -26,7 +26,7 @@ dev = [
   "pytest==8.3.3",
   "ruff==0.6.9",
   "testcontainers[opensearch]==4.8.2",
-  "types-jsonschema==4.23.0.20240813"
+  "types-jsonschema==4.26.0.20261006"
 ]
 
 [tool.setuptools]
